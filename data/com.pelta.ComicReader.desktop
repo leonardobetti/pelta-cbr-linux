@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Pelta Comic Reader
+GenericName=Comic Reader
+Comment=Offline comic reader for CBR, CBZ, and CBT
+Icon=com.pelta.ComicReader
+Exec=pelta-linux-gnome %U
+Terminal=false
+Categories=Graphics;Viewer;Office;
+MimeType=application/vnd.comicbook+zip;application/vnd.comicbook-rar;application/x-cbz;application/x-cbr;application/x-cbt;application/zip;application/x-rar-compressed;
+Keywords=comic;manga;cbz;cbr;cbt;reader;pelta;
+StartupNotify=true
+# Wayland-native GNOME app (no X11)
+X-GNOME-UsesNotifications=false

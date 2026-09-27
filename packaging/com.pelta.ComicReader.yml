@@ -1,0 +1,56 @@
+# Flatpak manifest — Pelta Comic Reader
+#
+# Canonical GNOME Rust app flow: Meson + Cargo + Flatpak
+# (same pattern as World/Rust/gtk-rust-template).
+#
+# - Wayland ONLY (no X11 / fallback-x11)
+# - Author: Leonardo Betti
+# - Runtime: org.gnome.Platform 50 + rust-stable + llvm/mold
+#
+# Build:
+#   flatpak-builder --user --install-deps-from=flathub --force-clean build-dir packaging/com.pelta.ComicReader.yml
+#
+# Note: --share=network during cargo is intentional for GitHub CI.
+# Flathub submission later should switch to offline cargo-sources.json.
+
+app-id: com.pelta.ComicReader
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm22
+
+command: pelta-linux-gnome
+
+finish-args:
+  - --socket=wayland
+  - --share=ipc
+  - --device=dri
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm22/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: clang
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold
+
+modules:
+  - name: pelta-linux-gnome
+    buildsystem: meson
+    config-opts:
+      - -Dprofile=default
+    sources:
+      - type: dir
+        path: ..
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+  - '*.la'

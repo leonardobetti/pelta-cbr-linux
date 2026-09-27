@@ -1,0 +1,23 @@
+[package]
+name = "pelta-linux-gnome"
+version = "0.1.6"
+edition = "2021"
+rust-version = "1.92"
+description = "Pelta Comic Reader — Linux GNOME (GTK4 + libadwaita)"
+authors = ["Leonardo Betti"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/leonardobetti/pelta-cbr-linux"
+homepage = "https://peltacbr.vercel.app"
+publish = false
+
+[[bin]]
+name = "pelta-linux-gnome"
+path = "src/main.rs"
+
+[dependencies]
+gio = "0.22"
+glib = "0.22"
+gtk4 = { version = "0.11", features = ["gnome_50"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_9"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
+fast_image_resize = "6"

@@ -1,0 +1,64 @@
+name: Flatpak
+
+# Builds the Flatpak for x86_64 and aarch64 on every push and pull request.
+# When a release is published, both bundles are attached to it. flatpak-builder@v6
+# embeds Flathub as the runtime repo, so `flatpak install --bundle` can fetch the
+# GNOME runtime on a fresh machine. The website and install.sh find the bundles by
+# their *-<arch>.flatpak suffix.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Wayland-only finish-args
+        run: bash build-aux/check-flatpak-no-x11.sh
+
+  flatpak:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v5
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/com.pelta.ComicReader.yml
+          bundle: pelta-comic-reader-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
+          artifact-name: flatpak-${{ matrix.arch }}
+
+  publish:
+    needs: flatpak
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flatpak-*
+          merge-multiple: true
+      - name: Attach bundles to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" pelta-comic-reader-*.flatpak --clobber --repo "$GITHUB_REPOSITORY"

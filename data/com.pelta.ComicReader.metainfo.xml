@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.pelta.ComicReader</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <name>Pelta Comic Reader</name>
+  <summary>Offline comic reader for CBR, CBZ, and CBT</summary>
+  <developer id="co.uk.leonardobetti">
+    <name>Leonardo Betti</name>
+  </developer>
+  <description>
+    <p>
+      Pelta is a fast, minimalist comic reader. Open a CBR, CBZ, or CBT and
+      start reading — no library to manage, no account, and no sync.
+    </p>
+    <p>
+      The Linux edition runs as a Wayland-native GNOME Flatpak (GTK 4 + libadwaita)
+      and opens comic archives with libarchive, decoding pages on demand.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.pelta.ComicReader.desktop</launchable>
+  <url type="homepage">https://peltacbr.vercel.app</url>
+  <url type="bugtracker">https://github.com/leonardobetti/pelta-cbr-linux/issues</url>
+  <url type="vcs-browser">https://github.com/leonardobetti/pelta-cbr-linux</url>
+  <url type="help">https://leonardobetti.co.uk</url>
+  <provides>
+    <binary>pelta-linux-gnome</binary>
+    <mediatype>application/vnd.comicbook+zip</mediatype>
+    <mediatype>application/vnd.comicbook-rar</mediatype>
+    <mediatype>application/x-cbz</mediatype>
+    <mediatype>application/x-cbr</mediatype>
+    <mediatype>application/x-cbt</mediatype>
+  </provides>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <supports>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="0.1.6" date="2026-09-13">
+      <description>
+        <p>Linux ships as Wayland-only Flatpak (GTK4 + libadwaita). Native CBR/CBZ via libarchive.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+  <branding>
+    <color type="primary" scheme_preference="light">#FF5216</color>
+    <color type="primary" scheme_preference="dark">#FF5216</color>
+  </branding>
+</component>
