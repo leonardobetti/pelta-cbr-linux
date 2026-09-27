@@ -1,7 +1,11 @@
 # Pelta CBR for Linux
 
-A fast, offline comic reader for the GNOME desktop. Open a `.cbr`, `.cbz` or `.cbt` and start
-reading: no library to manage, no account, no sync, no telemetry.
+![Pelta CBR, a comic reader built for the Linux desktop](PeltaCBR_gh.png)
+
+Pelta is a comic reader for people who want to open a file and read. Its emphasis is on speed, a small surface area also staying out of the way. There is no library, no sync, and no account. Pelta does not keep a catalogue of your comics — on the contrary, each file opens on its own, and the only thing retained is how far you got, and only until you close the file.
+
+This is the offline GNOME desktop version. Open a `.cbr`, `.cbz` or `.cbt` and start reading, with
+no telemetry.
 
 - Native GTK 4 + libadwaita app, Wayland only
 - Reads archives with libarchive (the same approach as GNOME Papers), pages decoded on demand
@@ -10,6 +14,24 @@ reading: no library to manage, no account, no sync, no telemetry.
 - Ships as a Flatpak for x86_64 and ARM64
 
 Website: [peltacbr.vercel.app](https://peltacbr.vercel.app)
+
+## Why it exists
+
+Someone handed me an old Surface they were not using. I put Fedora on it, then looked for something that would open `.cbr` / `.cbz` files well. There was not much that fitted, so I started building my own.
+
+## Features
+
+- Open comics via file dialog or drag-and-drop
+- Formats: `.cbr` / `.rar`, `.cbz` / `.zip`, `.pdf`
+- Smart upscaling so low-resolution scans read more clearly on modern screens
+- Lanczos3 downscaling for oversized pages
+- Automatic contrast and tint correction for yellowed paper and faded ink
+- Page matte matched to each page's border colour
+- Lazy page loading
+- Pinch-zoom, swipe / hotspot page turns, fullscreen
+- Natural sort for archive page order
+- No library or collections — each file opens and reads on its own
+- Fully offline, nothing to sync (zombie-apocalypse proof)
 
 ## Install
 
@@ -79,10 +101,17 @@ The running app has no network access and no X11. It only asks for Wayland, IPC 
 and opens files through the file chooser portal. Network is used during the build, while Cargo
 fetches crates.
 
+## Contributors
+
+Issues, ideas, and pull requests are welcome — especially around copy, packaging, and platform polish.
+
+## Support
+
+If you find Pelta useful, you can [buy me a coffee on Ko-fi](https://ko-fi.com/leonardobetti).
+
 ## License
 
 [GNU AGPL v3 or later](LICENSE). Copyright © 2026 Leonardo Betti.
 
 Pelta is also available for macOS, Windows and the browser from the
-[website](https://peltacbr.vercel.app). If it's useful to you,
-[buy me a coffee on Ko-fi](https://ko-fi.com/leonardobetti).
+[website](https://peltacbr.vercel.app).
