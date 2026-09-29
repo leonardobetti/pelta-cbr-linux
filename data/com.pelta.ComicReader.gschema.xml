@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="pelta-linux-gnome">
+  <schema id="com.pelta.ComicReader" path="/com/pelta/ComicReader/">
+    <key name="page-matte-detection" type="b">
+      <default>true</default>
+      <summary>Match page border colour</summary>
+      <description>Use each page's border colour as the reader background.</description>
+    </key>
+  </schema>
+</schemalist>

@@ -47,6 +47,7 @@ jobs:
           bundle: pelta-comic-reader-${{ matrix.arch }}.flatpak
           arch: ${{ matrix.arch }}
           artifact-name: flatpak-${{ matrix.arch }}
+          run-tests: true
 
   publish:
     needs: flatpak

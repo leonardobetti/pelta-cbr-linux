@@ -9,6 +9,8 @@
 
 mod archive;
 mod image_proc;
+mod matte;
+mod reader_matte;
 mod reading;
 mod settings;
 
@@ -20,8 +22,9 @@ use std::time::Instant;
 use adw::prelude::*;
 use archive::ComicArchive;
 use image_proc::{process_page, CacheKey, ProcessCache, ProcessedPage};
+use reader_matte::ReaderMatte;
 use reading::{can_go_next, can_go_prev, next_anchor, prev_anchor, view_for_page, PageView};
-use settings::{AppSettings, ImageProcessingSettings, ReadingMode, ScalingMode};
+use settings::{AppSettings, ImageProcessingSettings, Preferences, ReadingMode, ScalingMode};
 
 const APP_ID: &str = "com.pelta.ComicReader";
 const APP_TITLE: &str = "Pelta Comic Reader";
@@ -378,6 +381,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
     process_spinner.set_can_target(false);
     reader_overlay.add_overlay(&process_spinner);
     stack.add_named(&reader_overlay, Some("reader"));
+    let matte = ReaderMatte::new(&reader_overlay, Preferences::load(APP_ID));
 
     toast_overlay.set_child(Some(&stack));
     toolbar_view.set_content(Some(&toast_overlay));
@@ -414,6 +418,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let stack = stack.clone();
         let toast_overlay = toast_overlay.clone();
         let reader_box = reader_box.clone();
+        let matte = matte.clone();
 
         Rc::new(move |page_idx: usize| {
             let two_page = settings.borrow().reading.mode.is_two_page();
@@ -474,6 +479,9 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                     Ok(bytes) => {
                         // Set anchor before async apply so visibility checks see the new page.
                         finish_chrome(p, format!("Page {} of {}", p + 1, page_count));
+                        if matte.enabled() {
+                            matte.show(view, vec![bytes.clone()]);
+                        }
                         if img_settings.needs_processing() {
                             let (sw, sh) = slot_size(&picture_left, win_w, win_h);
                             schedule_processed_page(
@@ -535,6 +543,9 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                         left,
                         format!("Pages {}–{} of {}", left + 1, right + 1, page_count),
                     );
+                    if matte.enabled() {
+                        matte.show(view, vec![left_bytes.clone(), right_bytes.clone()]);
+                    }
                     if img_settings.needs_processing() {
                         let box_w = reader_box.width().max(win_w);
                         let box_h = reader_box.height().max(win_h);
@@ -642,6 +653,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let process_gen = process_gen.clone();
         let process_pending = process_pending.clone();
         let process_spinner = process_spinner.clone();
+        let matte = matte.clone();
 
         Rc::new(move |path: PathBuf| {
             {
@@ -664,6 +676,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                     process_pending.set(0);
                     process_spinner.stop();
                     process_spinner.set_visible(false);
+                    matte.reset();
                     state.borrow_mut().archive = Some(archive);
                     show_page(0);
                 }
@@ -747,6 +760,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let state = state.clone();
         let process_cache = process_cache.clone();
         let process_gen = process_gen.clone();
+        let matte = matte.clone();
         move |_| {
             open_settings_dialog(
                 &window,
@@ -755,6 +769,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                 &state,
                 &process_cache,
                 &process_gen,
+                &matte,
             );
         }
     });
@@ -932,6 +947,7 @@ fn open_settings_dialog(
     state: &Rc<RefCell<AppState>>,
     process_cache: &Rc<RefCell<ProcessCache>>,
     process_gen: &Rc<Cell<u64>>,
+    matte: &Rc<ReaderMatte>,
 ) {
     let dialog = adw::PreferencesDialog::new();
     dialog.set_title("Settings");
@@ -1033,6 +1049,31 @@ fn open_settings_dialog(
     reading_group.add(&single_row);
     reading_group.add(&two_row);
     page.add(&reading_group);
+
+    let appearance_group = adw::PreferencesGroup::new();
+    appearance_group.set_title("Appearance");
+    let matte_row = adw::SwitchRow::new();
+    matte_row.set_title("Match page border colour");
+    matte_row.set_subtitle("Use each page's border colour as the reader background.");
+    matte_row.set_active(matte.enabled());
+    matte_row.connect_active_notify({
+        let matte = matte.clone();
+        let show_page = show_page.clone();
+        let state = state.clone();
+        move |row| {
+            let enabled = row.is_active();
+            if enabled == matte.enabled() {
+                return;
+            }
+            matte.set_enabled(enabled);
+            let page = state.borrow().current_page;
+            if enabled && state.borrow().archive.is_some() {
+                show_page(page);
+            }
+        }
+    });
+    appearance_group.add(&matte_row);
+    page.add(&appearance_group);
 
     // --- Image processing (exactly one option; default is Nothing / GTK scale) ---
     let image_group = adw::PreferencesGroup::new();

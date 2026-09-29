@@ -75,11 +75,26 @@ cargo run
 meson setup _build -Dprofile=development && meson compile -C _build
 ```
 
+Preferences are stored with GSettings. Running from a checkout without installing the schema
+works, but settings are only kept for that session.
+
+### Tests
+
+```bash
+cargo test --release
+# or through Meson, which also validates the desktop file, AppStream metadata and schema
+meson test -C _build
+```
+
+CI runs the same suite inside the Flatpak build. Design notes live in [docs/](docs/).
+
 ## Layout
 
 ```
 src/            Rust sources (window, archive reader, image processing, reading modes, settings)
-data/           Desktop entry, AppStream metainfo, hicolor icons
+data/           Desktop entry, AppStream metainfo, GSettings schema, hicolor icons
+docs/           Design notes
+tests/fixtures/ Public-domain and synthetic test images
 packaging/      Flatpak manifest (org.gnome.Platform 50)
 build-aux/      Meson Cargo helper, Wayland-only manifest check
 ```
