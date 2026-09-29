@@ -29,3 +29,14 @@ custom_target(
     '--',
   ] + cargo_build_options,
 )
+
+# Offline: flatpak-builder runs tests without network, after the build step
+# has already fetched every crate into CARGO_HOME.
+test(
+  'cargo-test',
+  cargo,
+  args: ['test', '--offline'] + cargo_build_options,
+  env: cargo_env,
+  timeout: 1800,
+  is_parallel: false,
+)

@@ -11,6 +11,20 @@ install_data(
   install_dir: datadir / 'metainfo',
 )
 
+install_data(
+  'com.pelta.ComicReader.gschema.xml',
+  install_dir: datadir / 'glib-2.0' / 'schemas',
+)
+
+glib_compile_schemas = find_program('glib-compile-schemas', required: false)
+if glib_compile_schemas.found()
+  test(
+    'validate-schema',
+    glib_compile_schemas,
+    args: ['--strict', '--dry-run', meson.current_source_dir()],
+  )
+endif
+
 if desktop_file_validate.found()
   test(
     'validate-desktop',

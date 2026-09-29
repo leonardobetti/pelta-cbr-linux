@@ -1,7 +1,7 @@
 //! Page / spread navigation for single-page and two-page reading modes.
 
 /// What is currently shown in the reader viewport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PageView {
     /// One page alone (cover, back cover, or leftover middle page).
     Single(usize),
