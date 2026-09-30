@@ -1,6 +1,6 @@
 [package]
 name = "pelta-linux-gnome"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 rust-version = "1.92"
 description = "Pelta Comic Reader — Linux GNOME (GTK4 + libadwaita)"

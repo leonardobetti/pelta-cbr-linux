@@ -39,7 +39,7 @@
     <control>touch</control>
   </supports>
   <releases>
-    <release version="0.1.7" date="2026-09-29" type="development">
+    <release version="0.1.7" date="2026-09-30">
       <description>
         <p>The reader background now matches each page's border colour, so pages sit on their own paper instead of a grey frame. Pages without a clear border keep the normal background. Turn it off in Settings with "Match page border colour".</p>
       </description>

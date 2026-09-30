@@ -1,7 +1,7 @@
 project(
   'pelta-linux-gnome',
   'rust',
-  version: '0.1.6',
+  version: '0.1.7',
   meson_version: '>= 0.59',
   license: 'AGPL-3.0-or-later',
 )
