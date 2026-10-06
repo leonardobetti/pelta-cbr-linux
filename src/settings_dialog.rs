@@ -1,8 +1,6 @@
 //! Settings dialog and the pure mapping between its controls and
 //! [`AppSettings`](crate::settings::AppSettings).
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -99,182 +97,127 @@ pub fn open_settings_dialog(
     appearance_group.add(&matte_row);
     page.add(&appearance_group);
 
-    // --- Image processing (exactly one option; default is Nothing / GTK scale) ---
+    let image_row = adw::ActionRow::new();
+    image_row.set_title("Image processing");
+    image_row.set_subtitle(&image_summary(settings.borrow().image));
+    image_row.set_activatable(true);
+    image_row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
+    let image_page = image_processing_page(settings, rerender, &image_row);
+    image_row.connect_activated({
+        let dialog = dialog.downgrade();
+        move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.push_subpage(&image_page);
+            }
+        }
+    });
     let image_group = adw::PreferencesGroup::new();
-    image_group.set_title("Image processing");
-
-    let nothing_row = adw::SwitchRow::new();
-    nothing_row.set_title("Nothing (default)");
-    nothing_row.set_subtitle("GTK scales the texture");
-
-    let lanczos_row = adw::SwitchRow::new();
-    lanczos_row.set_title("Lanczos3 (experimental)");
-    lanczos_row.set_subtitle("Linear-light Lanczos3 resize to display size");
-
-    let mitchell_row = adw::SwitchRow::new();
-    mitchell_row.set_title("Mitchell-Netravali / Catmull-Rom");
-    mitchell_row.set_subtitle("Linear-light Mitchell resize to display size");
-
-    let contrast_row = adw::SwitchRow::new();
-    contrast_row.set_title("Auto contrast");
-    contrast_row.set_subtitle("CLAHE on luminance (tile-based, clip-limited)");
-
-    {
-        let img = settings.borrow().image;
-        // Exactly one exclusive choice: custom scaling XOR auto-contrast XOR nothing.
-        let contrast = img.auto_contrast;
-        nothing_row.set_active(!contrast && img.scaling == ScalingMode::Nothing);
-        lanczos_row.set_active(!contrast && img.scaling == ScalingMode::Lanczos3);
-        mitchell_row.set_active(!contrast && img.scaling == ScalingMode::MitchellNetravali);
-        contrast_row.set_active(contrast);
-    }
-
-    let scale_updating = Rc::new(Cell::new(false));
-
-    nothing_row.connect_active_notify({
-        let lanczos_row = lanczos_row.clone();
-        let mitchell_row = mitchell_row.clone();
-        let contrast_row = contrast_row.clone();
-        let settings = settings.clone();
-        let updating = scale_updating.clone();
-        let rerender = rerender.clone();
-        move |row| {
-            if updating.get() {
-                return;
-            }
-            if row.is_active() {
-                updating.set(true);
-                lanczos_row.set_active(false);
-                mitchell_row.set_active(false);
-                contrast_row.set_active(false);
-                updating.set(false);
-                {
-                    let mut s = settings.borrow_mut();
-                    s.image.scaling = ScalingMode::Nothing;
-                    s.image.auto_contrast = false;
-                }
-                rerender();
-            } else if !lanczos_row.is_active()
-                && !mitchell_row.is_active()
-                && !contrast_row.is_active()
-            {
-                updating.set(true);
-                row.set_active(true);
-                updating.set(false);
-            }
-        }
-    });
-
-    lanczos_row.connect_active_notify({
-        let nothing_row = nothing_row.clone();
-        let mitchell_row = mitchell_row.clone();
-        let contrast_row = contrast_row.clone();
-        let settings = settings.clone();
-        let updating = scale_updating.clone();
-        let rerender = rerender.clone();
-        move |row| {
-            if updating.get() {
-                return;
-            }
-            if row.is_active() {
-                updating.set(true);
-                nothing_row.set_active(false);
-                mitchell_row.set_active(false);
-                contrast_row.set_active(false);
-                updating.set(false);
-                {
-                    let mut s = settings.borrow_mut();
-                    s.image.scaling = ScalingMode::Lanczos3;
-                    s.image.auto_contrast = false;
-                }
-                rerender();
-            } else if !nothing_row.is_active()
-                && !mitchell_row.is_active()
-                && !contrast_row.is_active()
-            {
-                updating.set(true);
-                row.set_active(true);
-                updating.set(false);
-            }
-        }
-    });
-
-    mitchell_row.connect_active_notify({
-        let nothing_row = nothing_row.clone();
-        let lanczos_row = lanczos_row.clone();
-        let contrast_row = contrast_row.clone();
-        let settings = settings.clone();
-        let updating = scale_updating.clone();
-        let rerender = rerender.clone();
-        move |row| {
-            if updating.get() {
-                return;
-            }
-            if row.is_active() {
-                updating.set(true);
-                nothing_row.set_active(false);
-                lanczos_row.set_active(false);
-                contrast_row.set_active(false);
-                updating.set(false);
-                {
-                    let mut s = settings.borrow_mut();
-                    s.image.scaling = ScalingMode::MitchellNetravali;
-                    s.image.auto_contrast = false;
-                }
-                rerender();
-            } else if !nothing_row.is_active()
-                && !lanczos_row.is_active()
-                && !contrast_row.is_active()
-            {
-                updating.set(true);
-                row.set_active(true);
-                updating.set(false);
-            }
-        }
-    });
-
-    contrast_row.connect_active_notify({
-        let nothing_row = nothing_row.clone();
-        let lanczos_row = lanczos_row.clone();
-        let mitchell_row = mitchell_row.clone();
-        let settings = settings.clone();
-        let updating = scale_updating.clone();
-        let rerender = rerender.clone();
-        move |row| {
-            if updating.get() {
-                return;
-            }
-            if row.is_active() {
-                updating.set(true);
-                nothing_row.set_active(false);
-                lanczos_row.set_active(false);
-                mitchell_row.set_active(false);
-                updating.set(false);
-                {
-                    let mut s = settings.borrow_mut();
-                    s.image.scaling = ScalingMode::Nothing;
-                    s.image.auto_contrast = true;
-                }
-                rerender();
-            } else if !nothing_row.is_active()
-                && !lanczos_row.is_active()
-                && !mitchell_row.is_active()
-            {
-                updating.set(true);
-                row.set_active(true);
-                updating.set(false);
-            }
-        }
-    });
-
-    image_group.add(&nothing_row);
-    image_group.add(&lanczos_row);
-    image_group.add(&mitchell_row);
-    image_group.add(&contrast_row);
+    image_group.add(&image_row);
     page.add(&image_group);
 
     dialog.add(&page);
     dialog.present(Some(window));
+}
+
+/// The "Image processing" subpage. Its handlers update `summary_row`, which
+/// is held weakly because the row's own handler keeps this page alive.
+fn image_processing_page(
+    settings: &Rc<RefCell<AppSettings>>,
+    rerender: impl Fn() + Clone + 'static,
+    summary_row: &adw::ActionRow,
+) -> adw::NavigationPage {
+    let content = adw::PreferencesPage::new();
+
+    let scaling_group = adw::PreferencesGroup::new();
+    scaling_group.set_title("Scaling");
+    let current = settings.borrow().image.scaling;
+    let mut checks: Vec<(ScalingMode, gtk4::CheckButton)> = Vec::new();
+    for (mode, title, subtitle) in [
+        (ScalingMode::Nothing, "Default", "GTK scales the page."),
+        (
+            ScalingMode::Lanczos3,
+            "Lanczos3 (experimental)",
+            "Linear-light Lanczos3 resize to display size",
+        ),
+        (
+            ScalingMode::MitchellNetravali,
+            "Mitchell-Netravali / Catmull-Rom",
+            "Linear-light Mitchell resize to display size",
+        ),
+    ] {
+        let check = gtk4::CheckButton::new();
+        check.set_valign(gtk4::Align::Center);
+        // Keyboard focus belongs to the row; Space or Enter on it selects.
+        // `set_focusable(false)` is not enough: the active radio's focus
+        // handler still claims Tab and traps focus on its row.
+        check.set_can_focus(false);
+        check.set_group(checks.first().map(|(_, first)| first));
+        check.set_active(mode == current);
+
+        let row = adw::ActionRow::new();
+        row.set_title(title);
+        row.set_subtitle(subtitle);
+        row.add_prefix(&check);
+        row.set_activatable_widget(Some(&check));
+        scaling_group.add(&row);
+        checks.push((mode, check));
+    }
+    content.add(&scaling_group);
+
+    let tone_group = adw::PreferencesGroup::new();
+    tone_group.set_title("Tone");
+    let contrast_row = adw::SwitchRow::new();
+    contrast_row.set_title("Auto contrast");
+    contrast_row.set_subtitle("CLAHE on luminance (tile-based, clip-limited)");
+    contrast_row.set_active(settings.borrow().image.auto_contrast);
+    tone_group.add(&contrast_row);
+    content.add(&tone_group);
+
+    let update_summary = {
+        let settings = settings.clone();
+        let summary_row = summary_row.downgrade();
+        move || {
+            if let Some(row) = summary_row.upgrade() {
+                row.set_subtitle(&image_summary(settings.borrow().image));
+            }
+        }
+    };
+
+    for (mode, check) in &checks {
+        let mode = *mode;
+        check.connect_toggled({
+            let settings = settings.clone();
+            let rerender = rerender.clone();
+            let update_summary = update_summary.clone();
+            move |check| {
+                let current = settings.borrow().image.scaling;
+                let Some(scaling) = scaling_write(mode, check.is_active(), current) else {
+                    return;
+                };
+                settings.borrow_mut().image.scaling = scaling;
+                rerender();
+                update_summary();
+            }
+        });
+    }
+
+    contrast_row.connect_active_notify({
+        let settings = settings.clone();
+        move |row| {
+            let current = settings.borrow().image.auto_contrast;
+            let Some(on) = contrast_write(row.is_active(), current) else {
+                return;
+            };
+            settings.borrow_mut().image.auto_contrast = on;
+            rerender();
+            update_summary();
+        }
+    });
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&content));
+    adw::NavigationPage::new(&toolbar, "Image processing")
 }
 
 fn reading_mode_from_switch(on: bool) -> ReadingMode {

@@ -55,7 +55,7 @@ step below therefore records both a debug and a release test run.
 - Deviations from the PRD: none.
 - Open items for manual QA: none yet.
 
-## Step 2: main page
+## Step 2: main page (`e5a819c`)
 
 - State: done.
 - Changed: `open_settings_dialog` moved from `src/main.rs` into

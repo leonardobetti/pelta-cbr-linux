@@ -50,8 +50,8 @@ impl ScalingMode {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ImageProcessingSettings {
     pub scaling: ScalingMode,
-    /// CLAHE on luminance. Mutually exclusive with Lanczos3 / Mitchell in the UI
-    /// (exactly one of Nothing, Lanczos3, Mitchell, or Auto contrast is on).
+    /// CLAHE on luminance. Independent of the scaling choice in the UI; when
+    /// both are on, CLAHE runs after the resize.
     pub auto_contrast: bool,
 }
 
