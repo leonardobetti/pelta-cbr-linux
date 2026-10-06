@@ -164,3 +164,91 @@ step below therefore records both a debug and a release test run.
 - Open items for manual QA: the full checklist in PRD section 12 on the
   installed Flatpak, minus screenshot comparison. The local `--user` build
   and the system 0.1.7 install share one settings file (review R7).
+
+## Step 5: Image processing on the main page (uncommitted)
+
+- State: done in the working tree, not committed.
+- Request: no subpage. Scaling and Auto contrast are on the same Settings
+  page. This replaces the step 3 subpage and the summary row, and the PRD
+  sections that describe them.
+- Changed: `src/settings_dialog.rs`. `image_processing_page` is now
+  `add_image_processing_groups`, which adds the "Scaling" and "Tone" groups
+  to the main page under "Appearance". The "Image processing" row, the
+  subpage, `scaling_name`, `image_summary` and the summary test are
+  removed. Write and rerender behaviour is unchanged.
+  `data/com.pelta.ComicReader.metainfo.xml`: the 0.1.8 release note no
+  longer says "its own page".
+- Checks: `cargo clippy --all-targets` ok, no warnings in
+  `settings_dialog.rs` (all warnings are in files this branch does not
+  change). `cargo test` 45 passed, 1 ignored. `rustfmt --check` on
+  `settings_dialog.rs`: clean. `cargo fmt` was not run on the crate (see
+  "Decisions in force"). `appstreamcli validate --no-net`: successful,
+  pedantic: 1.
+- Local Flatpak: `flatpak-builder --user --install` from this working tree
+  succeeded. Installed `com.pelta.ComicReader` 0.1.8 (user), commit
+  `9df198ed`. Nothing pushed, tagged or released.
+- Open items for manual QA: the Tab order on the single page; the scaling
+  rows and Auto contrast with a comic open.
+
+## Step 6: Reading radios, Auto levels, subtitles (uncommitted)
+
+- State: done in the working tree, not committed. Spec: the "Settings
+  Restructure & Auto Levels" PRD given in chat on 2026-10-06.
+- Where the PRD does not match the repo, and what was done:
+  - Reading mode is not stored in two boolean keys. It is one in-memory
+    `ReadingMode` enum, so a stored "both on" or "both off" state cannot
+    exist. The precedence ("Single page" wins) is in
+    `reading_mode_from_radios`, which maps the two radio states to the
+    enum. The handler reads both radios at every `toggled`, so it writes
+    exactly once in either GTK signal order.
+  - Matte from the processed page versus "Match page border colour must not
+    change": the matte comes from the processed page (after Auto levels and
+    CLAHE) only while Auto levels is on. With Auto levels off it still comes
+    from the raw page, so CLAHE-only and scaling-only behaviour is unchanged.
+  - There is no crop stage. The order is decode, scale, Auto levels, CLAHE.
+- Changed:
+  - New `src/auto_levels.rs`: luma histogram on a nearest-sampled proxy
+    (long side 512), black and white points at 0.5% and 99.5% (white
+    counted from the top), skip rules (empty or transparent, white point
+    under 96, spread under 48, already within 4 of 0 and 255), 256-entry
+    LUT applied equally to R, G and B (hue kept), alpha unchanged.
+  - `src/image_proc.rs`: one new `if settings.auto_levels` call between the
+    resize and CLAHE, `auto_levels` in `CacheKey`, doc line. Resamplers and
+    CLAHE are unchanged. Test fixture and pipeline tests added.
+  - `src/settings.rs`: `ImageProcessingSettings::auto_levels` (also in
+    `needs_processing`), key `auto-levels-enabled`, `Preferences` session
+    fallback now holds both keys.
+  - `data/com.pelta.ComicReader.gschema.xml`: the one new key, default off.
+  - `src/reader_matte.rs`: `show` takes an optional `ProcessedSource`
+    (slot size and settings). When set, detection runs `process_page` with
+    the same inputs as the visible page and reads the result. The cache key
+    includes the source. `Preferences` is shared through `Rc`.
+  - `src/main.rs`: `mod auto_levels`, `Rc<Preferences>`, Auto levels starts
+    from the stored key, `auto_levels` in both cache keys, slot size computed
+    before the matte call, `matte_source` passed to `matte.show`.
+  - `src/settings_dialog.rs`: Reading radios ("Single page" first), shared
+    `add_radio_rows` for Reading and Scaling, "Auto levels" switch below
+    Auto contrast (writes the setting and the key, then the existing
+    `rerender`), no trailing full stops in subtitles.
+  - Release note for 0.1.8 and README feature list.
+- Checks: `cargo test` debug 69 passed, 1 failed (the flaky timing test
+  above; passes alone), 1 ignored; `cargo test --release` 70 passed, 1
+  ignored. Byte identity: output hashes of all six (scaling, Auto contrast)
+  pairs were recorded before any change and the test reproduces them with
+  Auto levels off (filter hashes only on x86_64, because
+  `fast_image_resize` picks SIMD code per CPU). Clippy: 9 warnings, 11 with
+  tests, the same as before; the new `open_settings_dialog` parameter is
+  covered by `#[allow(clippy::too_many_arguments)]`. `rustfmt --check`
+  clean on `auto_levels.rs`, `settings_dialog.rs`, `reader_matte.rs`,
+  `settings.rs`; the remaining rustfmt differences in `image_proc.rs` and
+  `main.rs` are older lines. `cargo fmt` was not run on the crate.
+- Probe on the QA comic (The Killer 001, 33 pages, digital): white point
+  is 255 on every page, black point 0 to 40. Auto levels deepened blacks on
+  25 pages and skipped 8 that already use the full range; 2 to 7 ms per
+  page at 900×1300. The matte stays white. This book has no grey paper, so
+  the "grey scan" QA item needs a scanned comic.
+- Local Flatpak: `flatpak-builder --user --install` succeeded. Installed
+  `com.pelta.ComicReader` 0.1.8 (user), commit `69e51be1`; the installed
+  schema lists `auto-levels-enabled` and `page-matte-detection`. Nothing
+  pushed, tagged or released.
+- Open items for manual QA: the checklist in the PRD (section 6).

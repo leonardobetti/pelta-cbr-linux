@@ -6,5 +6,10 @@
       <summary>Match page border colour</summary>
       <description>Use each page's border colour as the reader background.</description>
     </key>
+    <key name="auto-levels-enabled" type="b">
+      <default>false</default>
+      <summary>Auto levels</summary>
+      <description>Set black and white points for each page from its luminance.</description>
+    </key>
   </schema>
 </schemalist>

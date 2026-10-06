@@ -47,18 +47,21 @@ impl ScalingMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ImageProcessingSettings {
     pub scaling: ScalingMode,
     /// CLAHE on luminance. Independent of the scaling choice in the UI; when
     /// both are on, CLAHE runs after the resize.
     pub auto_contrast: bool,
+    /// Black and white points per page, after the resize and before CLAHE.
+    /// Stored in GSettings ([`AUTO_LEVELS_KEY`]).
+    pub auto_levels: bool,
 }
 
 impl ImageProcessingSettings {
     /// True when we must decode → process → MemoryTexture instead of GTK scale.
     pub fn needs_processing(self) -> bool {
-        self.scaling.needs_custom_resize() || self.auto_contrast
+        self.scaling.needs_custom_resize() || self.auto_contrast || self.auto_levels
     }
 
     /// Optional soak-test overrides: `PELTA_LANCZOS3=1`, `PELTA_MITCHELL=1`,
@@ -88,6 +91,7 @@ pub struct AppSettings {
 }
 
 pub const PAGE_MATTE_KEY: &str = "page-matte-detection";
+pub const AUTO_LEVELS_KEY: &str = "auto-levels-enabled";
 
 /// Preferences that survive restarts, stored in GSettings under the app id.
 ///
@@ -96,11 +100,15 @@ pub const PAGE_MATTE_KEY: &str = "page-matte-detection";
 /// defaults, so the app still runs.
 pub enum Preferences {
     Stored(gio::Settings),
-    Session(Cell<bool>),
+    Session {
+        page_matte: Cell<bool>,
+        auto_levels: Cell<bool>,
+    },
 }
 
-/// Must match the `<default>` in `data/com.pelta.ComicReader.gschema.xml`.
+/// Must match the `<default>` values in `data/com.pelta.ComicReader.gschema.xml`.
 const PAGE_MATTE_DEFAULT: bool = true;
+const AUTO_LEVELS_DEFAULT: bool = false;
 
 impl Preferences {
     pub fn load(schema_id: &str) -> Self {
@@ -113,7 +121,7 @@ impl Preferences {
                     "[pelta-linux-gnome] GSettings schema {schema_id} not installed; \
                      preferences will not be saved"
                 );
-                Self::Session(Cell::new(PAGE_MATTE_DEFAULT))
+                Self::session()
             }
         }
     }
@@ -125,21 +133,56 @@ impl Preferences {
         Self::Stored(gio::Settings::new_full(schema, backend, None))
     }
 
-    pub fn page_matte(&self) -> bool {
-        match self {
-            Self::Stored(s) => s.boolean(PAGE_MATTE_KEY),
-            Self::Session(v) => v.get(),
+    fn session() -> Self {
+        Self::Session {
+            page_matte: Cell::new(PAGE_MATTE_DEFAULT),
+            auto_levels: Cell::new(AUTO_LEVELS_DEFAULT),
         }
     }
 
+    pub fn page_matte(&self) -> bool {
+        self.boolean(PAGE_MATTE_KEY)
+    }
+
     pub fn set_page_matte(&self, enabled: bool) {
+        self.set_boolean(PAGE_MATTE_KEY, enabled);
+    }
+
+    pub fn auto_levels(&self) -> bool {
+        self.boolean(AUTO_LEVELS_KEY)
+    }
+
+    pub fn set_auto_levels(&self, enabled: bool) {
+        self.set_boolean(AUTO_LEVELS_KEY, enabled);
+    }
+
+    fn session_cell(&self, key: &str) -> Option<&Cell<bool>> {
+        match (self, key) {
+            (Self::Session { page_matte, .. }, PAGE_MATTE_KEY) => Some(page_matte),
+            (Self::Session { auto_levels, .. }, AUTO_LEVELS_KEY) => Some(auto_levels),
+            _ => None,
+        }
+    }
+
+    fn boolean(&self, key: &str) -> bool {
+        match self {
+            Self::Stored(s) => s.boolean(key),
+            Self::Session { .. } => self.session_cell(key).is_some_and(Cell::get),
+        }
+    }
+
+    fn set_boolean(&self, key: &str, enabled: bool) {
         match self {
             Self::Stored(s) => {
-                if let Err(e) = s.set_boolean(PAGE_MATTE_KEY, enabled) {
-                    eprintln!("[pelta-linux-gnome] could not save {PAGE_MATTE_KEY}: {e}");
+                if let Err(e) = s.set_boolean(key, enabled) {
+                    eprintln!("[pelta-linux-gnome] could not save {key}: {e}");
                 }
             }
-            Self::Session(v) => v.set(enabled),
+            Self::Session { .. } => {
+                if let Some(cell) = self.session_cell(key) {
+                    cell.set(enabled);
+                }
+            }
         }
     }
 }
@@ -233,9 +276,59 @@ mod tests {
             .get::<bool>();
         assert_eq!(default, Some(PAGE_MATTE_DEFAULT));
 
-        let prefs = Preferences::Session(Cell::new(PAGE_MATTE_DEFAULT));
+        let prefs = Preferences::session();
         assert!(prefs.page_matte());
         prefs.set_page_matte(false);
         assert!(!prefs.page_matte());
+    }
+
+    #[test]
+    fn auto_levels_defaults_to_off() {
+        let dir = scratch("levels-default");
+        let schema = schema(&dir);
+        let key = schema.key(AUTO_LEVELS_KEY);
+        assert_eq!(key.default_value().get::<bool>(), Some(false));
+        assert_eq!(key.default_value().get::<bool>(), Some(AUTO_LEVELS_DEFAULT));
+        let prefs = keyfile_prefs(&schema, &dir.join("settings.ini"));
+        assert!(!prefs.auto_levels());
+        assert!(!Preferences::session().auto_levels());
+    }
+
+    #[test]
+    fn auto_levels_persists_independently_of_page_matte() {
+        let dir = scratch("levels-persist");
+        let schema = schema(&dir);
+        let file = dir.join("settings.ini");
+
+        let prefs = keyfile_prefs(&schema, &file);
+        prefs.set_auto_levels(true);
+        assert!(prefs.auto_levels());
+        assert!(prefs.page_matte());
+        gio::Settings::sync();
+        drop(prefs);
+
+        let reopened = keyfile_prefs(&schema, &file);
+        assert!(reopened.auto_levels());
+        assert!(reopened.page_matte());
+        let stored = std::fs::read_to_string(&file).unwrap();
+        assert!(stored.contains("auto-levels-enabled=true"), "{stored}");
+
+        let session = Preferences::session();
+        session.set_auto_levels(true);
+        assert!(session.auto_levels());
+        assert!(session.page_matte());
+    }
+
+    /// The schema may gain only this one key over 0.1.7.
+    #[test]
+    fn schema_has_exactly_the_two_expected_keys() {
+        let dir = scratch("keys");
+        let mut keys: Vec<String> = schema(&dir)
+            .list_keys()
+            .iter()
+            .map(|k| k.to_string())
+            .collect();
+        keys.sort();
+        assert_eq!(keys, [AUTO_LEVELS_KEY, PAGE_MATTE_KEY]);
     }
 }

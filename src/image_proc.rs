@@ -13,6 +13,7 @@ use fast_image_resize::{
 use image::imageops::FilterType as ImageFilter;
 use image::{DynamicImage, RgbaImage};
 
+use crate::auto_levels::auto_levels;
 use crate::settings::{ImageProcessingSettings, ScalingMode};
 
 /// Hard cap on cached processed pages (visible + neighbors + headroom).
@@ -25,6 +26,7 @@ pub struct CacheKey {
     pub height: u32,
     pub scaling: ScalingMode,
     pub auto_contrast: bool,
+    pub auto_levels: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +96,8 @@ pub fn decode_rgba(bytes: &[u8]) -> Result<RgbaImage, String> {
     Ok(img.to_rgba8())
 }
 
-/// Full pipeline: optional resize + optional CLAHE → RGBA bytes at display size.
+/// Full pipeline: decode → resize → optional Auto levels → optional CLAHE →
+/// RGBA bytes at display size.
 pub fn process_page(
     encoded: &[u8],
     display_w: u32,
@@ -118,6 +121,10 @@ pub fn process_page(
             resize_convolution_linear(&src, tw, th, FilterType::Mitchell)?
         }
     };
+
+    if settings.auto_levels {
+        auto_levels(&mut rgba);
+    }
 
     if settings.auto_contrast {
         clahe_luminance(&mut rgba, 8, 8, 2.0);
@@ -291,10 +298,118 @@ fn clahe_luminance(img: &mut RgbaImage, tiles_x: u32, tiles_y: u32, clip_limit: 
     }
 }
 
+/// A synthetic grey-paper "scan" shared by the pipeline and matte tests.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use image::{DynamicImage, Rgba, RgbaImage};
+
+    pub const PAGE_W: u32 = 240;
+    pub const PAGE_H: u32 = 320;
+
+    /// Warm grey paper with grain, rows of dark ink and a colour gradient.
+    /// Nothing reaches pure black or white, as in a weak scan.
+    pub fn grey_scan() -> RgbaImage {
+        RgbaImage::from_fn(PAGE_W, PAGE_H, |x, y| {
+            let grain = ((x.wrapping_mul(73) ^ y.wrapping_mul(151)) % 9) as i32 - 4;
+            let paper = |c: i32| (c + grain).clamp(0, 255) as u8;
+            let inside = (24..PAGE_W - 24).contains(&x) && (24..PAGE_H - 24).contains(&y);
+            if inside && (200..280).contains(&y) && (40..200).contains(&x) {
+                Rgba([(60 + x / 2) as u8, 120, (200 - x / 2) as u8, 255])
+            } else if inside && y % 12 < 3 {
+                Rgba([paper(46), paper(43), paper(40), 255])
+            } else {
+                Rgba([paper(206), paper(200), paper(190), 255])
+            }
+        })
+    }
+
+    pub fn png(img: &RgbaImage) -> Vec<u8> {
+        let mut buf = Vec::new();
+        DynamicImage::ImageRgba8(img.clone())
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .expect("encode png");
+        buf
+    }
+
+    /// FNV-1a, enough to pin down byte-identical output in a test.
+    pub fn fnv1a(bytes: &[u8]) -> u64 {
+        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
+            (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::{ImageBuffer, Rgba};
+
+    fn process_grey_scan(scaling: ScalingMode, auto_contrast: bool, auto_levels: bool) -> Vec<u8> {
+        let bytes = fixtures::png(&fixtures::grey_scan());
+        let settings = ImageProcessingSettings {
+            scaling,
+            auto_contrast,
+            auto_levels,
+        };
+        let out = process_page(&bytes, 180, 240, settings).unwrap();
+        assert_eq!((out.width, out.height), (180, 240));
+        out.rgba
+    }
+
+    /// Output hashes recorded from 0.1.8 before Auto levels existed (debug and
+    /// release builds agreed). Auto levels off must reproduce them exactly.
+    #[test]
+    fn auto_levels_off_is_byte_identical_to_before() {
+        let mut golden = vec![
+            (ScalingMode::Nothing, false, 0xe7ad_c5f5_462a_28e8_u64),
+            (ScalingMode::Nothing, true, 0xd077_81fe_ab38_ebea),
+        ];
+        // fast_image_resize picks SIMD code per CPU, so its exact bytes were
+        // only recorded on x86_64.
+        if cfg!(target_arch = "x86_64") {
+            golden.extend([
+                (ScalingMode::Lanczos3, false, 0xbd23_58f8_b91e_ce97),
+                (ScalingMode::Lanczos3, true, 0xbd87_bab2_b450_eb9e),
+                (ScalingMode::MitchellNetravali, false, 0x0d64_f704_b967_40fa),
+                (ScalingMode::MitchellNetravali, true, 0x53a6_1a54_2053_248f),
+            ]);
+        }
+        for (scaling, contrast, hash) in golden {
+            let out = process_grey_scan(scaling, contrast, false);
+            assert_eq!(
+                fixtures::fnv1a(&out),
+                hash,
+                "{scaling:?}, auto contrast {contrast}"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_levels_runs_after_the_resize_and_before_clahe() {
+        let src = fixtures::grey_scan();
+        let mut expected = resize_image_crate(&src, 180, 240, ImageFilter::Triangle);
+        assert!(auto_levels(&mut expected).is_some());
+        clahe_luminance(&mut expected, 8, 8, 2.0);
+        assert_eq!(
+            process_grey_scan(ScalingMode::Nothing, true, true),
+            expected.into_raw()
+        );
+    }
+
+    #[test]
+    fn auto_levels_on_changes_every_scaling_mode() {
+        for scaling in [
+            ScalingMode::Nothing,
+            ScalingMode::Lanczos3,
+            ScalingMode::MitchellNetravali,
+        ] {
+            assert_ne!(
+                process_grey_scan(scaling, false, true),
+                process_grey_scan(scaling, false, false),
+                "{scaling:?}"
+            );
+        }
+    }
 
     #[test]
     fn fit_contain_shrinks() {
@@ -321,6 +436,7 @@ mod tests {
                 height: 10,
                 scaling: ScalingMode::Nothing,
                 auto_contrast: false,
+                auto_levels: false,
             };
             cache.insert(
                 key,
@@ -350,6 +466,7 @@ mod tests {
             ImageProcessingSettings {
                 scaling: ScalingMode::Nothing,
                 auto_contrast: false,
+                auto_levels: false,
             },
         )
         .expect("before");
@@ -362,6 +479,7 @@ mod tests {
             ImageProcessingSettings {
                 scaling: ScalingMode::Lanczos3,
                 auto_contrast: false,
+                auto_levels: false,
             },
         )
         .expect("after");
@@ -373,6 +491,7 @@ mod tests {
             ImageProcessingSettings {
                 scaling: ScalingMode::MitchellNetravali,
                 auto_contrast: false,
+                auto_levels: false,
             },
         )
         .expect("after mitchell");
@@ -384,6 +503,7 @@ mod tests {
             ImageProcessingSettings {
                 scaling: ScalingMode::Nothing,
                 auto_contrast: true,
+                auto_levels: false,
             },
         )
         .expect("after clahe");
@@ -471,6 +591,7 @@ mod tests {
             ImageProcessingSettings {
                 scaling: ScalingMode::MitchellNetravali,
                 auto_contrast: false,
+                auto_levels: false,
             },
         )
         .expect("mitchell");

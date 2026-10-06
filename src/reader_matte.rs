@@ -11,27 +11,38 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 
-use crate::image_proc::decode_rgba;
+use crate::image_proc::{decode_rgba, process_page};
 use crate::matte::{detect_page, detect_spread, Rgb};
 use crate::reading::PageView;
-use crate::settings::Preferences;
+use crate::settings::{ImageProcessingSettings, Preferences};
 
 const READER_CLASS: &str = "pelta-reader";
 const TRANSITION: &str = "transition: background-color 200ms ease-out, color 200ms ease-out;";
 
+/// Detect from the page as the pipeline renders it at `width`×`height` with
+/// `settings`, instead of from the raw decoded page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProcessedSource {
+    pub width: u32,
+    pub height: u32,
+    pub settings: ImageProcessingSettings,
+}
+
+type MatteKey = (PageView, Option<ProcessedSource>);
+
 pub struct ReaderMatte {
-    prefs: Preferences,
+    prefs: Rc<Preferences>,
     provider: gtk4::CssProvider,
-    cache: RefCell<HashMap<PageView, Option<Rgb>>>,
+    cache: RefCell<HashMap<MatteKey, Option<Rgb>>>,
     /// Bumped when the book changes or the feature is switched off, so work
     /// started before then is dropped.
     generation: Cell<u64>,
-    on_screen: Cell<Option<PageView>>,
+    on_screen: Cell<Option<MatteKey>>,
     applied: Cell<Option<Rgb>>,
 }
 
 impl ReaderMatte {
-    pub fn new(reader: &impl IsA<gtk4::Widget>, prefs: Preferences) -> Rc<Self> {
+    pub fn new(reader: &impl IsA<gtk4::Widget>, prefs: Rc<Preferences>) -> Rc<Self> {
         reader.add_css_class(READER_CLASS);
         let provider = gtk4::CssProvider::new();
         gtk4::style_context_add_provider_for_display(
@@ -74,21 +85,28 @@ impl ReaderMatte {
     }
 
     /// `view` is now on screen; `pages` holds its encoded page bytes (one for
-    /// a single page, left then right for a spread). Does nothing while the
-    /// feature is off.
-    pub fn show(self: &Rc<Self>, view: PageView, pages: Vec<Vec<u8>>) {
+    /// a single page, left then right for a spread). With `processed`, the
+    /// colour comes from the pages as rendered with those settings; with
+    /// `None`, from the raw pages. Does nothing while the feature is off.
+    pub fn show(
+        self: &Rc<Self>,
+        view: PageView,
+        pages: Vec<Vec<u8>>,
+        processed: Option<ProcessedSource>,
+    ) {
         if !self.enabled() {
             return;
         }
-        self.on_screen.set(Some(view));
-        if let Some(&cached) = self.cache.borrow().get(&view) {
+        let key = (view, processed);
+        self.on_screen.set(Some(key));
+        if let Some(&cached) = self.cache.borrow().get(&key) {
             self.apply(cached);
             return;
         }
         let generation = self.generation.get();
         let this = Rc::downgrade(self);
         glib::spawn_future_local(async move {
-            let result = gio::spawn_blocking(move || detect(&pages)).await;
+            let result = gio::spawn_blocking(move || detect(&pages, processed)).await;
             let Some(this) = this.upgrade() else {
                 return;
             };
@@ -103,8 +121,8 @@ impl ReaderMatte {
                 }
                 Err(_) => None,
             };
-            this.cache.borrow_mut().insert(view, matte);
-            if this.on_screen.get() == Some(view) {
+            this.cache.borrow_mut().insert(key, matte);
+            if this.on_screen.get() == Some(key) {
                 this.apply(matte);
             }
         });
@@ -127,10 +145,18 @@ impl ReaderMatte {
     }
 }
 
-fn detect(pages: &[Vec<u8>]) -> Result<Option<Rgb>, String> {
+fn detect(pages: &[Vec<u8>], processed: Option<ProcessedSource>) -> Result<Option<Rgb>, String> {
+    let load = |bytes: &[u8]| match processed {
+        None => decode_rgba(bytes),
+        Some(p) => {
+            let page = process_page(bytes, p.width, p.height, p.settings)?;
+            image::RgbaImage::from_raw(page.width, page.height, page.rgba)
+                .ok_or_else(|| "processed page has the wrong size".to_string())
+        }
+    };
     match pages {
-        [page] => Ok(detect_page(&decode_rgba(page)?)),
-        [left, right] => Ok(detect_spread(&decode_rgba(left)?, &decode_rgba(right)?)),
+        [page] => Ok(detect_page(&load(page)?)),
+        [left, right] => Ok(detect_spread(&load(left)?, &load(right)?)),
         _ => Err(format!("expected 1 or 2 pages, got {}", pages.len())),
     }
 }
@@ -159,6 +185,7 @@ fn reader_css(matte: Option<Rgb>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image_proc::fixtures;
 
     #[test]
     fn css_without_matte_uses_the_theme_background() {
@@ -180,8 +207,55 @@ mod tests {
 
     #[test]
     fn detect_rejects_wrong_page_counts() {
-        assert!(detect(&[]).is_err());
-        assert!(detect(&[vec![], vec![], vec![]]).is_err());
-        assert!(detect(&[b"not an image".to_vec()]).is_err());
+        assert!(detect(&[], None).is_err());
+        assert!(detect(&[vec![], vec![], vec![]], None).is_err());
+        assert!(detect(&[b"not an image".to_vec()], None).is_err());
+    }
+
+    fn levels_source(auto_contrast: bool) -> ProcessedSource {
+        ProcessedSource {
+            width: 180,
+            height: 240,
+            settings: ImageProcessingSettings {
+                auto_contrast,
+                auto_levels: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn matte_comes_from_the_processed_page() {
+        let scan = fixtures::grey_scan();
+        let bytes = fixtures::png(&scan);
+        let pages = std::slice::from_ref(&bytes);
+
+        let raw = detect(pages, None).unwrap().expect("raw matte");
+        assert_eq!(raw, detect_page(&scan).unwrap());
+
+        for contrast in [false, true] {
+            let source = levels_source(contrast);
+            let shown = process_page(&bytes, source.width, source.height, source.settings).unwrap();
+            let shown = image::RgbaImage::from_raw(shown.width, shown.height, shown.rgba).unwrap();
+            let processed = detect(pages, Some(source)).unwrap();
+            assert_eq!(processed, detect_page(&shown), "auto contrast {contrast}");
+        }
+
+        let brightened = detect(pages, Some(levels_source(false)))
+            .unwrap()
+            .expect("processed matte");
+        assert!(
+            brightened.relative_luminance() > raw.relative_luminance() + 0.1,
+            "raw {raw:?}, processed {brightened:?}"
+        );
+    }
+
+    #[test]
+    fn processed_spread_uses_both_processed_pages() {
+        let bytes = fixtures::png(&fixtures::grey_scan());
+        let pages = [bytes.clone(), bytes];
+        let raw = detect(&pages, None).unwrap().unwrap();
+        let processed = detect(&pages, Some(levels_source(false))).unwrap().unwrap();
+        assert_ne!(raw, processed);
     }
 }

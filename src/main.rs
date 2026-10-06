@@ -8,6 +8,7 @@
 //! - Lets GTK scale textures to the widget
 
 mod archive;
+mod auto_levels;
 mod image_proc;
 mod matte;
 mod reader_matte;
@@ -23,7 +24,7 @@ use std::time::Instant;
 use adw::prelude::*;
 use archive::ComicArchive;
 use image_proc::{process_page, CacheKey, ProcessCache, ProcessedPage};
-use reader_matte::ReaderMatte;
+use reader_matte::{ProcessedSource, ReaderMatte};
 use reading::{can_go_next, can_go_prev, next_anchor, prev_anchor, view_for_page, PageView};
 use settings::{AppSettings, ImageProcessingSettings, Preferences};
 use settings_dialog::open_settings_dialog;
@@ -201,6 +202,7 @@ fn schedule_processed_page(
         height: slot_h,
         scaling: img.scaling,
         auto_contrast: img.auto_contrast,
+        auto_levels: img.auto_levels,
     };
     if let Some(hit) = cache.borrow_mut().get(&key) {
         apply_processed_page(&picture, &hit);
@@ -283,6 +285,7 @@ fn prefetch_processed_page(
         height: slot_h,
         scaling: img.scaling,
         auto_contrast: img.auto_contrast,
+        auto_levels: img.auto_levels,
     };
     if cache.borrow_mut().get(&key).is_some() {
         return;
@@ -383,7 +386,8 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
     process_spinner.set_can_target(false);
     reader_overlay.add_overlay(&process_spinner);
     stack.add_named(&reader_overlay, Some("reader"));
-    let matte = ReaderMatte::new(&reader_overlay, Preferences::load(APP_ID));
+    let prefs = Rc::new(Preferences::load(APP_ID));
+    let matte = ReaderMatte::new(&reader_overlay, prefs.clone());
 
     toast_overlay.set_child(Some(&stack));
     toolbar_view.set_content(Some(&toast_overlay));
@@ -396,7 +400,10 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
     }));
     let settings = Rc::new(RefCell::new(AppSettings {
         reading: Default::default(),
-        image: ImageProcessingSettings::from_env(),
+        image: ImageProcessingSettings {
+            auto_levels: prefs.auto_levels(),
+            ..ImageProcessingSettings::from_env()
+        },
     }));
     let process_cache = Rc::new(RefCell::new(ProcessCache::default()));
     // Bumped only on settings / archive change so neighbor prefetch is not cancelled by page turns.
@@ -459,6 +466,16 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
             let win_w = window.default_width().max(window.width()).max(800);
             let win_h = window.default_height().max(window.height()).max(600);
 
+            // With Auto levels off the matte keeps coming from the raw page,
+            // so its colour is the same as before Auto levels existed.
+            let matte_source = |width, height| {
+                img_settings.auto_levels.then_some(ProcessedSource {
+                    width,
+                    height,
+                    settings: img_settings,
+                })
+            };
+
             let prefetch_neighbors = |anchor: usize, slot_w: u32, slot_h: u32| {
                 for np in neighbor_page_indices(anchor, page_count, two_page) {
                     if let Ok(nb) = read_page(np) {
@@ -481,11 +498,11 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                     Ok(bytes) => {
                         // Set anchor before async apply so visibility checks see the new page.
                         finish_chrome(p, format!("Page {} of {}", p + 1, page_count));
+                        let (sw, sh) = slot_size(&picture_left, win_w, win_h);
                         if matte.enabled() {
-                            matte.show(view, vec![bytes.clone()]);
+                            matte.show(view, vec![bytes.clone()], matte_source(sw, sh));
                         }
                         if img_settings.needs_processing() {
-                            let (sw, sh) = slot_size(&picture_left, win_w, win_h);
                             schedule_processed_page(
                                 p,
                                 bytes,
@@ -545,14 +562,18 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                         left,
                         format!("Pages {}–{} of {}", left + 1, right + 1, page_count),
                     );
+                    let box_w = reader_box.width().max(win_w);
+                    let box_h = reader_box.height().max(win_h);
+                    let slot_w = (box_w / 2).max(1) as u32;
+                    let slot_h = box_h.max(1) as u32;
                     if matte.enabled() {
-                        matte.show(view, vec![left_bytes.clone(), right_bytes.clone()]);
+                        matte.show(
+                            view,
+                            vec![left_bytes.clone(), right_bytes.clone()],
+                            matte_source(slot_w, slot_h),
+                        );
                     }
                     if img_settings.needs_processing() {
-                        let box_w = reader_box.width().max(win_w);
-                        let box_h = reader_box.height().max(win_h);
-                        let slot_w = (box_w / 2).max(1) as u32;
-                        let slot_h = box_h.max(1) as u32;
                         schedule_processed_page(
                             left,
                             left_bytes,
@@ -763,6 +784,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let process_cache = process_cache.clone();
         let process_gen = process_gen.clone();
         let matte = matte.clone();
+        let prefs = prefs.clone();
         move |_| {
             open_settings_dialog(
                 &window,
@@ -772,6 +794,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                 &process_cache,
                 &process_gen,
                 &matte,
+                &prefs,
             );
         }
     });

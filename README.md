@@ -26,6 +26,7 @@ Someone handed me an old Surface they were not using. I put Fedora on it, then l
 - Smart upscaling so low-resolution scans read more clearly on modern screens
 - Lanczos3 downscaling for oversized pages
 - Automatic contrast and tint correction for yellowed paper and faded ink
+- Auto levels: per-page black and white points for grey paper and weak blacks
 - Page matte matched to each page's border colour
 - Lazy page loading
 - Pinch-zoom, swipe / hotspot page turns, fullscreen
