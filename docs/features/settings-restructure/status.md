@@ -79,3 +79,88 @@ step below therefore records both a debug and a release test run.
   `settings_dialog.rs`: clean. `timeout 5 cargo run`: starts, no panic.
 - Deviations from the PRD: none.
 - Open items for manual QA: Two-page spreads on and off with a comic open.
+
+## Step 3: Image processing subpage and summary row (`b5a150f`)
+
+- State: done.
+- Note: this section was meant to be part of `b5a150f`, but it was staged
+  too late and went into the step 4 commit instead. No amend, so the history
+  keeps one commit per step.
+- Changed: `src/settings_dialog.rs` (old four-switch group replaced; new
+  `image_processing_page`; temporary dead-code allow removed),
+  `src/settings.rs` (doc comment on `auto_contrast` only: it is now
+  independent of the scaling choice in the UI). `src/main.rs` is unchanged
+  in this step.
+- Main page: an untitled group with the activatable "Image processing"
+  row, the summary as subtitle and a `go-next-symbolic` suffix. Activating
+  it pushes the subpage.
+- Subpage: `AdwNavigationPage` "Image processing" with an `AdwToolbarView`,
+  an `AdwHeaderBar` and an `AdwPreferencesPage`. Scaling group: three radio
+  rows (one `GtkCheckButton` group, each row's activatable widget is its
+  check button) with the titles and subtitles listed under "Decisions in
+  force". Tone group: the "Auto contrast" switch. All initial states are set
+  before handlers connect. Scaling writes only `image.scaling`, Auto
+  contrast writes only `image.auto_contrast`; both then call the existing
+  `rerender` and update the summary. No `RefCell` borrow is held across
+  `rerender`. The summary row and the dialog are captured weakly to avoid
+  reference cycles.
+- Focus: `set_focusable(false)` on the check buttons was tried first and
+  failed. The buttons never became Tab stops, but Tab stuck on the selected
+  "Default" row and Shift+Tab stuck on the row after it. GTK's check button
+  focus handler claims focus for the active radio even when it cannot take
+  it. `set_can_focus(false)` fixes this, so the code uses that.
+- Probe (throwaway copy in `/tmp/pelta-probe`, nothing committed; it opens
+  the real dialog through the Settings button, walks focus with the
+  window's `move-focus` signal, the Tab key's binding, and presses rows with
+  `GtkListBox`'s `activate-cursor-row`, the Space/Enter binding):
+  - Main page Tab cycle: Two-page spreads, Match page border colour, Image
+    processing, then wraps.
+  - Subpage Tab cycle: back button, Default, Lanczos3 (experimental),
+    Mitchell-Netravali / Catmull-Rom, Auto contrast, then wraps. Shift+Tab
+    is the exact reverse. No check button is ever focused, and
+    `grab_focus()` on each check button returns false.
+  - Space on the focused Lanczos3 row: scaling Lanczos3, one rerender,
+    summary "Lanczos3". Pressing it again: no write, no rerender.
+  - Auto contrast on: scaling stays Lanczos3, summary "Lanczos3, Auto
+    contrast". Mitchell, then Default: one rerender each, Auto contrast
+    stays on, summaries update while the subpage is open.
+  - `navigation.pop` (what Escape and Alt+Left trigger): focus returns to
+    the "Image processing" row.
+  - Opening the dialog, and reopening and closing it without a change,
+    does not rerender (`process_gen` unchanged).
+  - Started with `PELTA_LANCZOS3=1 PELTA_AUTO_CONTRAST=1`: Lanczos3
+    selected, Auto contrast off, summary "Lanczos3".
+- Checks: `cargo build` ok. `cargo test` 46 passed, 1 ignored (debug and
+  release). Guard output empty: yes; `src/main.rs` hunks unchanged from step
+  2; `src/settings.rs` diff is the doc comment only. Clippy new warnings:
+  no. `rustfmt --check` on `settings_dialog.rs`: clean. `timeout 5 cargo
+  run`: starts, no panic.
+- Deviations from the PRD: the Mitchell row title stays "Mitchell-Netravali
+  / Catmull-Rom" with its `main` subtitle (decision: scaling fixes are not
+  in this base). The summary still says "Mitchell-Netravali", as PRD 5.3
+  specifies.
+- Open items for manual QA: clicking the title, subtitle and radio of each
+  scaling row with the mouse; real Escape and Alt+Left keys; Ctrl+F does
+  nothing; narrow width (bottom sheet at 450 px wide or 360 px high);
+  filter plus Auto contrast on a large page; visible page change after each
+  selection with a comic open.
+
+## Step 4: version 0.1.8
+
+- State: committed; local Flatpak build pending.
+- Changed: `Cargo.toml` (version line only), `Cargo.lock` (one line, from
+  `cargo update -p pelta-linux-gnome --offline`), `meson.build` (project
+  version), `data/com.pelta.ComicReader.metainfo.xml` (new 0.1.8 release
+  dated 2026-10-06 at the top of `<releases>`).
+- Checks: `appstreamcli validate --no-net --explain`: "Validation was
+  successful: pedantic: 1" (the same pedantic note exists on `main`).
+  `cargo build` ok. `cargo test` 46 passed, 1 ignored (debug and release).
+  Guard output empty: yes; `src/main.rs` and `src/settings.rs` hunks
+  unchanged from step 3. Clippy new warnings: no. `rustfmt --check` on
+  `settings_dialog.rs`: clean.
+- Local Flatpak (`flatpak-builder --user --install`, nothing pushed):
+  pending.
+- Deviations from the PRD: none.
+- Open items for manual QA: the full checklist in PRD section 12 on the
+  installed Flatpak, minus screenshot comparison. The local `--user` build
+  and the system 0.1.7 install share one settings file (review R7).

@@ -39,6 +39,11 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.1.8" date="2026-10-06">
+      <description>
+        <p>Settings are simpler. Turn two-page spreads on or off with one switch. Scaling and Auto contrast are now on their own "Image processing" page, and you can use Auto contrast together with a scaling filter.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-09-30">
       <description>
         <p>The reader background now matches each page's border colour, so pages sit on their own paper instead of a grey frame. Pages without a clear border keep the normal background. Turn it off in Settings with "Match page border colour".</p>
