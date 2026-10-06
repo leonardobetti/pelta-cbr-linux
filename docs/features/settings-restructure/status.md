@@ -38,7 +38,7 @@ while other builds ran, then passed on a quiet rerun. It always passes with
 `cargo test --release`, which is what `meson test` runs in the Flatpak. Each
 step below therefore records both a debug and a release test run.
 
-## Step 1: pure mapping logic
+## Step 1: pure mapping logic (`15e1d5a`)
 
 - State: done.
 - Changed: new `src/settings_dialog.rs` (GTK-free helpers and 9 unit
@@ -54,3 +54,28 @@ step below therefore records both a debug and a release test run.
   on `settings_dialog.rs`: clean.
 - Deviations from the PRD: none.
 - Open items for manual QA: none yet.
+
+## Step 2: main page
+
+- State: done.
+- Changed: `open_settings_dialog` moved from `src/main.rs` into
+  `src/settings_dialog.rs` as `pub fn` with the same parameters. In
+  `src/main.rs` the only hunks are the `mod` line, the `use` lines
+  (`ReadingMode` and `ScalingMode` no longer imported; the function is
+  imported by name so the call site in `settings_btn.connect_clicked` is
+  unchanged) and the removed function with its doc comment.
+- Main page: no page icon, page title "General", dialog title "Settings",
+  search off. Reading is one switch, "Two-page spreads", subtitle "Facing
+  pages; cover and back cover stay alone." Its initial state is set before
+  the handler is connected; the handler uses `reading_write` and, on a
+  change, sets `reading.mode` and calls `show_page(current_page)` when an
+  archive is open (no cache clear, as before). Appearance is unchanged. The
+  old Image processing group (four exclusive switches) is kept as it was so
+  the app works between commits.
+- Checks: `cargo build` ok. `cargo test --release` 46 passed, 1 ignored.
+  Debug `cargo test`: 45 passed, 1 failed (the flaky timing test above), 1
+  ignored. Guard output empty: yes; `src/main.rs` hunks as listed above,
+  `src/settings.rs` unchanged. Clippy new warnings: no. `rustfmt --check` on
+  `settings_dialog.rs`: clean. `timeout 5 cargo run`: starts, no panic.
+- Deviations from the PRD: none.
+- Open items for manual QA: Two-page spreads on and off with a comic open.
