@@ -13,6 +13,7 @@ mod matte;
 mod reader_matte;
 mod reading;
 mod settings;
+mod settings_dialog;
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
