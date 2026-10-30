@@ -1,0 +1,21 @@
+[package]
+name = "pelta-core"
+version = "0.1.8"
+edition.workspace = true
+rust-version.workspace = true
+description = "Archive reading, page decoding, and image processing for Pelta"
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+image.workspace = true
+fast_image_resize.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+test-util = []
+
+[lints]
+workspace = true

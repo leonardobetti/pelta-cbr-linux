@@ -14,6 +14,14 @@
 //! [`PROXY_LONG_SIDE`]). The table is applied to the full image it is given,
 //! which in the pipeline is the page at display size.
 
+#![expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "pixel channel math is inherently 8-bit, f32, and usize"
+)]
+
 use image::RgbaImage;
 
 /// Share of the darkest pixels ignored when the black point is chosen, so a
@@ -42,9 +50,12 @@ pub const MIN_WHITE_POINT: u8 = 96;
 /// in matte detection.
 pub const MIN_OPAQUE_ALPHA: u8 = 128;
 
+/// Black and white points for one page, in Rec.709 luma.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Levels {
+    /// Darkest luma kept as black (0).
     pub black: u8,
+    /// Brightest luma kept as white (255).
     pub white: u8,
 }
 
@@ -186,9 +197,9 @@ mod tests {
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
         let c = max - min;
-        let h = if max == r {
+        let h = if p[0] >= p[1] && p[0] >= p[2] {
             ((g - b) / c).rem_euclid(6.0)
-        } else if max == g {
+        } else if p[1] >= p[2] {
             (b - r) / c + 2.0
         } else {
             (r - g) / c + 4.0

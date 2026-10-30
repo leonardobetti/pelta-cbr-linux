@@ -9,7 +9,6 @@ project(
 gnome = import('gnome')
 
 base_id = 'com.pelta.ComicReader'
-application_id = base_id
 
 dependency('glib-2.0', version: '>= 2.80')
 dependency('gio-2.0', version: '>= 2.80')
@@ -30,10 +29,12 @@ iconsdir = datadir / 'icons'
 
 if get_option('profile') == 'development'
   message('Building in debug mode')
+  application_id = base_id + '.Devel'
   cargo_release_option = []
   rust_target = 'debug'
 else
   message('Building in release mode')
+  application_id = base_id
   cargo_release_option = ['--release']
   rust_target = 'release'
 endif
@@ -43,6 +44,7 @@ cargo_target = meson.project_build_root() / 'cargo-target'
 cargo_env = environment()
 cargo_env.set('CARGO_HOME', cargo_home)
 cargo_env.set('CARGO_TARGET_DIR', cargo_target)
+cargo_env.set('PELTA_APPLICATION_ID', application_id)
 
 meson.add_devenv(cargo_env)
 

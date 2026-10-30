@@ -1,20 +1,24 @@
 //! Settings dialog and the pure mapping between its controls and
-//! [`AppSettings`](crate::settings::AppSettings).
+//! [`AppSettings`](pelta_core::AppSettings).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
 
-use crate::image_proc::ProcessCache;
+use pelta_core::{AppSettings, ProcessCache, ReadingMode, ScalingMode};
+
 use crate::reader_matte::ReaderMatte;
-use crate::settings::{AppSettings, Preferences, ReadingMode, ScalingMode};
+use crate::settings::Preferences;
 use crate::AppState;
 
 /// Preferences dialog (not ShortcutsDialog — that widget is for keyboard
 /// shortcut lists and cannot host SwitchRows / preference groups).
-#[allow(clippy::too_many_arguments)]
-pub fn open_settings_dialog(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "GTK dialog needs the live reader widgets and settings cells"
+)]
+pub(crate) fn open_settings_dialog(
     window: &adw::ApplicationWindow,
     settings: &Rc<RefCell<AppSettings>>,
     show_page: &Rc<impl Fn(usize) + 'static>,
@@ -267,7 +271,7 @@ fn switch_write(on: bool, current: bool) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::ImageProcessingSettings;
+    use pelta_core::ImageProcessingSettings;
 
     const SCALING: [ScalingMode; 3] = [
         ScalingMode::Nothing,
@@ -409,7 +413,7 @@ mod tests {
     #[test]
     fn reactivating_the_selected_row_writes_nothing() {
         for mode in SCALING {
-            assert!(scaling_writes(mode, &[]).is_empty());
+            assert_eq!(scaling_writes(mode, &[]), [] as [ScalingMode; 0]);
         }
     }
 

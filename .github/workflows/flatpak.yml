@@ -23,10 +23,30 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Wayland-only finish-args
-        run: bash build-aux/check-flatpak-no-x11.sh
+        run: |
+          bash build-aux/check-flatpak-no-x11.sh packaging/com.pelta.ComicReader.yml
+          bash build-aux/check-flatpak-no-x11.sh packaging/com.pelta.ComicReader.Devel.yml
+
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install libarchive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-dev pkg-config
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy (core)
+        run: cargo clippy -p pelta-core --all-targets --all-features -- -D warnings
+      - name: test (core)
+        run: cargo test -p pelta-core
 
   flatpak:
-    needs: check
+    needs: [check, rust]
     strategy:
       fail-fast: false
       matrix:

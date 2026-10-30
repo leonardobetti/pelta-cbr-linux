@@ -1,0 +1,53 @@
+# Development Flatpak — same app, distinct id so it can sit beside the release build.
+#
+# Wayland ONLY (no X11 / fallback-x11). Never sudo: install with --user.
+#
+#   flatpak-builder --user --install-deps-from=flathub --force-clean --install \
+#     build-dir-devel packaging/com.pelta.ComicReader.Devel.yml
+#   flatpak run com.pelta.ComicReader.Devel
+#   flatpak uninstall --user com.pelta.ComicReader.Devel
+
+app-id: com.pelta.ComicReader.Devel
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm22
+
+command: pelta-linux-gnome
+
+finish-args:
+  - --socket=wayland
+  - --share=ipc
+  - --device=dri
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm22/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: clang
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold
+
+modules:
+  - name: pelta-linux-gnome
+    buildsystem: meson
+    config-opts:
+      - -Dprofile=development
+    rename-desktop-file: com.pelta.ComicReader.desktop
+    rename-appdata-file: com.pelta.ComicReader.metainfo.xml
+    rename-icon: com.pelta.ComicReader
+    sources:
+      - type: dir
+        path: ..
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+  - '*.la'

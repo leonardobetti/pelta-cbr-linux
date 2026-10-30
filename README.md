@@ -2,7 +2,7 @@
 
 ![Pelta CBR, a comic reader built for the Linux desktop](PeltaCBR_gh.png)
 
-Pelta is a comic reader for people who want to open a file and read. Its emphasis is on speed, a small surface area also staying out of the way. There is no library, no sync, and no account. Pelta does not keep a catalogue of your comics — on the contrary, each file opens on its own, and the only thing retained is how far you got, and only until you close the file.
+Pelta is a comic reader for people who want to open a file and read. Its emphasis is on speed, a small surface area also staying out of the way. There is no library, no sync, and no account. Pelta does not keep a catalogue of your comics. Each file opens on its own, and the only thing retained is how far you got, and only until you close the file.
 
 This is the offline GNOME desktop version. Open a `.cbr`, `.cbz` or `.cbt` and start reading, with
 no telemetry.
@@ -22,7 +22,7 @@ Someone handed me an old Surface they were not using. I put Fedora on it, then l
 ## Features
 
 - Open comics via file dialog or drag-and-drop
-- Formats: `.cbr` / `.rar`, `.cbz` / `.zip`, `.pdf`
+- Formats: `.cbr` / `.rar`, `.cbz` / `.zip`, `.cbt` / `.tar`
 - Smart upscaling so low-resolution scans read more clearly on modern screens
 - Lanczos3 downscaling for oversized pages
 - Automatic contrast and tint correction for yellowed paper and faded ink
@@ -31,7 +31,7 @@ Someone handed me an old Surface they were not using. I put Fedora on it, then l
 - Lazy page loading
 - Pinch-zoom, swipe / hotspot page turns, fullscreen
 - Natural sort for archive page order
-- No library or collections — each file opens and reads on its own
+- No library or collections: each file opens and reads on its own
 - Fully offline, nothing to sync (zombie-apocalypse proof)
 
 ## Install
@@ -66,6 +66,15 @@ flatpak run org.flatpak.Builder --user --install-deps-from=flathub --force-clean
 flatpak run com.pelta.ComicReader
 ```
 
+A development build uses a distinct app id so it can sit beside the release install:
+
+```bash
+flatpak-builder --user --install-deps-from=flathub --force-clean --install \
+  build-dir-devel packaging/com.pelta.ComicReader.Devel.yml
+flatpak run com.pelta.ComicReader.Devel
+flatpak uninstall --user com.pelta.ComicReader.Devel
+```
+
 ### On the host
 
 Needs Rust 1.92+, Meson, GTK ≥ 4.22, libadwaita ≥ 1.9 and libarchive development files.
@@ -92,12 +101,14 @@ CI runs the same suite inside the Flatpak build. Design notes live in [docs/](do
 ## Layout
 
 ```
-src/            Rust sources (window, archive reader, image processing, reading modes, settings)
-data/           Desktop entry, AppStream metainfo, GSettings schema, hicolor icons
-docs/           Design notes
-tests/fixtures/ Public-domain and synthetic test images
-packaging/      Flatpak manifest (org.gnome.Platform 50)
-build-aux/      Meson Cargo helper, Wayland-only manifest check
+crates/pelta-core/  Shared archive reading, decompression, cache, and image processing
+src/                GTK 4 + libadwaita shell (window, settings, page matte UI)
+data/               Desktop entry, AppStream metainfo, GSettings schema, hicolor icons
+docs/               Design notes
+tests/fixtures/     Public-domain and synthetic test images, plus a tiny CBZ
+packaging/          Flatpak manifest (org.gnome.Platform 50)
+build-aux/          Meson Cargo helper, Wayland-only manifest check
+lints/              BeautifulRust clippy config (enforced as -D warnings in CI)
 ```
 
 ## Releases
@@ -119,7 +130,7 @@ fetches crates.
 
 ## Contributors
 
-Issues, ideas, and pull requests are welcome — especially around copy, packaging, and platform polish.
+Issues, ideas, and pull requests are welcome, especially around copy, packaging, and platform polish.
 
 ## Support
 

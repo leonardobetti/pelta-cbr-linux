@@ -4,6 +4,14 @@
 //! Auto contrast). When enabled, work runs at display size only, off the UI
 //! thread, with a small bounded cache (no unbounded buffers).
 
+#![expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "pixel channel math is inherently 8-bit, f32, and usize"
+)]
+
 use std::collections::HashMap;
 
 use fast_image_resize::images::Image as FirImage;
@@ -16,34 +24,61 @@ use image::{DynamicImage, RgbaImage};
 use crate::auto_levels::auto_levels;
 use crate::settings::{ImageProcessingSettings, ScalingMode};
 
+/// Failure while decoding or resampling a page.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ProcessError {
+    /// Encoded bytes were not a supported image.
+    #[error("could not decode page image: {0}")]
+    Decode(#[from] image::ImageError),
+    /// `fast_image_resize` rejected the buffer or algorithm.
+    #[error("could not resize page: {0}")]
+    Resize(String),
+    /// Output buffer length did not match width × height × 4.
+    #[error("RGBA buffer size mismatch")]
+    BufferMismatch,
+}
+
 /// Hard cap on cached processed pages (visible + neighbors + headroom).
 const CACHE_CAP: usize = 6;
 
+/// Identity of a processed page in [`ProcessCache`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CacheKey {
+    /// 0-based page index in the open archive.
     pub page: usize,
+    /// Target slot width in pixels.
     pub width: u32,
+    /// Target slot height in pixels.
     pub height: u32,
+    /// Resampling algorithm used.
     pub scaling: ScalingMode,
+    /// Whether CLAHE ran.
     pub auto_contrast: bool,
+    /// Whether auto levels ran.
     pub auto_levels: bool,
 }
 
+/// Display-sized RGBA8 page ready for a `MemoryTexture`.
 #[derive(Debug, Clone)]
 pub struct ProcessedPage {
+    /// Pixel width.
     pub width: u32,
+    /// Pixel height.
     pub height: u32,
+    /// Packed RGBA8 bytes, length `width * height * 4`.
     pub rgba: Vec<u8>,
 }
 
 /// Bounded LRU-ish cache: insert evicts oldest when over capacity.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ProcessCache {
     order: Vec<CacheKey>,
     map: HashMap<CacheKey, ProcessedPage>,
 }
 
 impl ProcessCache {
+    /// Returns a clone of the cached page and refreshes LRU order.
     pub fn get(&mut self, key: &CacheKey) -> Option<ProcessedPage> {
         if let Some(page) = self.map.get(key) {
             // Refresh LRU order.
@@ -56,9 +91,10 @@ impl ProcessCache {
         None
     }
 
+    /// Inserts `page`, evicting the oldest entry when over capacity.
     pub fn insert(&mut self, key: CacheKey, page: ProcessedPage) {
-        if self.map.contains_key(&key) {
-            self.map.insert(key, page);
+        if let std::collections::hash_map::Entry::Occupied(mut occupied) = self.map.entry(key) {
+            occupied.insert(page);
             return;
         }
         while self.map.len() >= CACHE_CAP {
@@ -73,6 +109,7 @@ impl ProcessCache {
         self.map.insert(key, page);
     }
 
+    /// Drops every cached page.
     pub fn clear(&mut self) {
         self.order.clear();
         self.map.clear();
@@ -80,6 +117,7 @@ impl ProcessCache {
 }
 
 /// Fit `src` into `max` preserving aspect (may upscale for display-size processing).
+#[must_use]
 pub fn fit_contain(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
     if src_w == 0 || src_h == 0 || max_w == 0 || max_h == 0 {
         return (src_w.max(1), src_h.max(1));
@@ -91,19 +129,27 @@ pub fn fit_contain(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32)
 }
 
 /// Decode encoded page bytes → RGBA8.
-pub fn decode_rgba(bytes: &[u8]) -> Result<RgbaImage, String> {
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+///
+/// # Errors
+///
+/// Returns [`ProcessError::Decode`] if `bytes` is not a supported image.
+pub fn decode_rgba(bytes: &[u8]) -> Result<RgbaImage, ProcessError> {
+    let img = image::load_from_memory(bytes)?;
     Ok(img.to_rgba8())
 }
 
 /// Full pipeline: decode → resize → optional Auto levels → optional CLAHE →
 /// RGBA bytes at display size.
+///
+/// # Errors
+///
+/// Returns [`ProcessError`] if the page cannot be decoded or resized.
 pub fn process_page(
     encoded: &[u8],
     display_w: u32,
     display_h: u32,
     settings: ImageProcessingSettings,
-) -> Result<ProcessedPage, String> {
+) -> Result<ProcessedPage, ProcessError> {
     let src = decode_rgba(encoded)?;
     let (tw, th) = fit_contain(src.width(), src.height(), display_w, display_h);
 
@@ -154,36 +200,35 @@ fn resize_convolution_linear(
     tw: u32,
     th: u32,
     filter: FilterType,
-) -> Result<RgbaImage, String> {
+) -> Result<RgbaImage, ProcessError> {
     let sw = src.width();
     let sh = src.height();
     if sw == tw && sh == th {
         return Ok(src.clone());
     }
 
-    let src_fir = FirImage::from_vec_u8(sw, sh, src.as_raw().to_vec(), PixelType::U8x4)
-        .map_err(|e| e.to_string())?;
+    let src_fir = FirImage::from_vec_u8(sw, sh, src.as_raw().clone(), PixelType::U8x4)
+        .map_err(|e| ProcessError::Resize(e.to_string()))?;
 
     let mapper = create_srgb_mapper();
     let mut src_linear = FirImage::new(sw, sh, PixelType::U16x4);
     mapper
         .forward_map(&src_fir, &mut src_linear)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ProcessError::Resize(e.to_string()))?;
 
     let mut dst_linear = FirImage::new(tw, th, PixelType::U16x4);
     let mut resizer = Resizer::new();
     let opts = ResizeOptions::new().resize_alg(ResizeAlg::Convolution(filter));
     resizer
         .resize(&src_linear, &mut dst_linear, &opts)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ProcessError::Resize(e.to_string()))?;
 
     let mut dst_srgb = FirImage::new(tw, th, PixelType::U8x4);
     mapper
         .backward_map(&dst_linear, &mut dst_srgb)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ProcessError::Resize(e.to_string()))?;
 
-    RgbaImage::from_raw(tw, th, dst_srgb.into_vec())
-        .ok_or_else(|| "RGBA buffer size mismatch".to_string())
+    RgbaImage::from_raw(tw, th, dst_srgb.into_vec()).ok_or(ProcessError::BufferMismatch)
 }
 
 /// Tile-based CLAHE on Rec.709 luminance; chromaticity preserved. ~100 lines, no dep.
@@ -201,7 +246,9 @@ fn clahe_luminance(img: &mut RgbaImage, tiles_x: u32, tiles_y: u32, clip_limit: 
         let r = px[0] as f32;
         let g = px[1] as f32;
         let b = px[2] as f32;
-        lum[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b).round().clamp(0.0, 255.0) as u8;
+        lum[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b)
+            .round()
+            .clamp(0.0, 255.0) as u8;
     }
 
     let tx = tiles_x as usize;
@@ -299,11 +346,13 @@ fn clahe_luminance(img: &mut RgbaImage, tiles_x: u32, tiles_y: u32, clip_limit: 
 }
 
 /// A synthetic grey-paper "scan" shared by the pipeline and matte tests.
-#[cfg(test)]
-pub(crate) mod fixtures {
+#[cfg(any(test, feature = "test-util"))]
+pub mod fixtures {
     use image::{DynamicImage, Rgba, RgbaImage};
 
+    /// Synthetic page width in pixels.
     pub const PAGE_W: u32 = 240;
+    /// Synthetic page height in pixels.
     pub const PAGE_H: u32 = 320;
 
     /// Warm grey paper with grain, rows of dark ink and a colour gradient.
@@ -323,6 +372,12 @@ pub(crate) mod fixtures {
         })
     }
 
+    /// Encodes `img` as PNG.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the in-memory PNG encoder fails, which indicates a bug in
+    /// the `image` crate rather than bad test input.
     pub fn png(img: &RgbaImage) -> Vec<u8> {
         let mut buf = Vec::new();
         DynamicImage::ImageRgba8(img.clone())
@@ -344,16 +399,27 @@ mod tests {
     use super::*;
     use image::{ImageBuffer, Rgba};
 
-    fn process_grey_scan(scaling: ScalingMode, auto_contrast: bool, auto_levels: bool) -> Vec<u8> {
+    fn process_grey_scan(settings: ImageProcessingSettings) -> Vec<u8> {
         let bytes = fixtures::png(&fixtures::grey_scan());
-        let settings = ImageProcessingSettings {
-            scaling,
-            auto_contrast,
-            auto_levels,
-        };
         let out = process_page(&bytes, 180, 240, settings).unwrap();
         assert_eq!((out.width, out.height), (180, 240));
         out.rgba
+    }
+
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "test helper mirrors ImageProcessingSettings fields"
+    )]
+    fn image_settings(
+        scaling: ScalingMode,
+        auto_contrast: bool,
+        auto_levels: bool,
+    ) -> ImageProcessingSettings {
+        ImageProcessingSettings {
+            scaling,
+            auto_contrast,
+            auto_levels,
+        }
     }
 
     /// Output hashes recorded from 0.1.8 before Auto levels existed (debug and
@@ -375,7 +441,7 @@ mod tests {
             ]);
         }
         for (scaling, contrast, hash) in golden {
-            let out = process_grey_scan(scaling, contrast, false);
+            let out = process_grey_scan(image_settings(scaling, contrast, false));
             assert_eq!(
                 fixtures::fnv1a(&out),
                 hash,
@@ -391,7 +457,7 @@ mod tests {
         assert!(auto_levels(&mut expected).is_some());
         clahe_luminance(&mut expected, 8, 8, 2.0);
         assert_eq!(
-            process_grey_scan(ScalingMode::Nothing, true, true),
+            process_grey_scan(image_settings(ScalingMode::Nothing, true, true)),
             expected.into_raw()
         );
     }
@@ -404,8 +470,8 @@ mod tests {
             ScalingMode::MitchellNetravali,
         ] {
             assert_ne!(
-                process_grey_scan(scaling, false, true),
-                process_grey_scan(scaling, false, false),
+                process_grey_scan(image_settings(scaling, false, true)),
+                process_grey_scan(image_settings(scaling, false, false)),
                 "{scaling:?}"
             );
         }

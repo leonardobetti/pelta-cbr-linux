@@ -1,23 +1,101 @@
+[workspace]
+members = ["crates/pelta-core"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.92"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/leonardobetti/pelta-cbr-linux"
+publish = false
+
+[workspace.dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
+fast_image_resize = "6"
+thiserror = "2"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "allow"
+panic_in_result_fn = "warn"
+missing_panics_doc = "warn"
+missing_errors_doc = "warn"
+missing_assert_message = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+fn_params_excessive_bools = "warn"
+struct_excessive_bools = "warn"
+clone_on_ref_ptr = "warn"
+redundant_clone = "warn"
+rc_buffer = "warn"
+exhaustive_enums = "warn"
+string_add = "warn"
+wildcard_imports = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+as_conversions = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+module_inception = "allow"
+enum_glob_use = "allow"
+# Pedantic noise on pixel/FFI code. BeautifulRust already allows a few of
+# these; the rest are the same class (short names, lossless casts, docs).
+cast_lossless = "allow"
+cast_possible_wrap = "allow"
+many_single_char_names = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+items_after_statements = "allow"
+explicit_iter_loop = "allow"
+uninlined_format_args = "allow"
+needless_continue = "allow"
+doc_markdown = "allow"
+trivially_copy_pass_by_ref = "allow"
+if_not_else = "allow"
+manual_div_ceil = "allow"
+manual_range_contains = "allow"
+
 [package]
 name = "pelta-linux-gnome"
 version = "0.1.8"
-edition = "2021"
-rust-version = "1.92"
+edition.workspace = true
+rust-version.workspace = true
 description = "Pelta Comic Reader — Linux GNOME (GTK4 + libadwaita)"
 authors = ["Leonardo Betti"]
-license = "AGPL-3.0-or-later"
-repository = "https://github.com/leonardobetti/pelta-cbr-linux"
+license.workspace = true
+repository.workspace = true
 homepage = "https://peltacbr.vercel.app"
-publish = false
+publish.workspace = true
 
 [[bin]]
 name = "pelta-linux-gnome"
 path = "src/main.rs"
 
 [dependencies]
+pelta-core = { path = "crates/pelta-core" }
 gio = "0.22"
 glib = "0.22"
 gtk4 = { version = "0.11", features = ["gnome_50"] }
 adw = { package = "libadwaita", version = "0.9", features = ["v1_9"] }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
-fast_image_resize = "6"
+image.workspace = true
+
+[dev-dependencies]
+pelta-core = { path = "crates/pelta-core", features = ["test-util"] }
+
+[lints]
+workspace = true
