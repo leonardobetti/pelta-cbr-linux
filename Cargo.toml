@@ -72,7 +72,7 @@ manual_range_contains = "allow"
 
 [package]
 name = "pelta-linux-gnome"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 rust-version.workspace = true
 description = "Pelta Comic Reader — Linux GNOME (GTK4 + libadwaita)"
