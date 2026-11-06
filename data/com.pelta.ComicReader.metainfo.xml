@@ -11,7 +11,7 @@
   <description>
     <p>
       Pelta is a fast, minimalist comic reader. Open a CBR, CBZ, or CBT and
-      start reading — no library to manage, no account, and no sync.
+      start reading: no library to manage, no account, and no sync.
     </p>
     <p>
       The Linux edition runs as a Wayland-native GNOME Flatpak (GTK 4 + libadwaita)
@@ -39,6 +39,12 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.1.9" date="2026-11-06">
+      <description>
+        <p>Archive reading is safer and more solid. Page size and count limits protect against oversized or broken CBR/CBZ files, and the Flatpak build is available for both x86_64 and aarch64.</p>
+        <p>Under the hood, archive, decoding, and image processing live in a GTK-free core library, with clippy enforced in CI. A Devel Flatpak id lets a local build sit beside the release install.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-10-06">
       <description>
         <p>Settings are simpler. All settings are on one page. Choose "Single page" or "Two-page spreads" for reading, and use Auto contrast together with a scaling filter.</p>

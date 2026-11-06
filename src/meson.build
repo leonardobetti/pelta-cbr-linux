@@ -35,7 +35,27 @@ custom_target(
 test(
   'cargo-test',
   cargo,
-  args: ['test', '--offline'] + cargo_build_options,
+  args: ['test', '--offline', '--workspace'] + cargo_build_options,
+  env: cargo_env,
+  timeout: 1800,
+  is_parallel: false,
+)
+
+test(
+  'cargo-clippy',
+  cargo,
+  args: [
+    'clippy',
+    '--offline',
+    '-p',
+    'pelta-core',
+    '--all-targets',
+    '--all-features',
+  ] + cargo_build_options + [
+    '--',
+    '-D',
+    'warnings',
+  ],
   env: cargo_env,
   timeout: 1800,
   is_parallel: false,

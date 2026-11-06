@@ -7,12 +7,14 @@
 //! - Decodes pages on demand
 //! - Lets GTK scale textures to the widget
 
-mod archive;
-mod auto_levels;
-mod image_proc;
-mod matte;
+#![expect(
+    clippy::print_stderr,
+    clippy::as_conversions,
+    clippy::cast_sign_loss,
+    reason = "GTK application: widget sizes and startup diagnostics"
+)]
+
 mod reader_matte;
-mod reading;
 mod settings;
 mod settings_dialog;
 
@@ -22,14 +24,19 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use adw::prelude::*;
-use archive::ComicArchive;
-use image_proc::{process_page, CacheKey, ProcessCache, ProcessedPage};
+use pelta_core::{
+    can_go_next, can_go_prev, next_anchor, prev_anchor, process_page, view_for_page, AppSettings,
+    CacheKey, ComicArchive, ImageProcessingSettings, PageView, ProcessCache, ProcessedPage,
+    ReadingMode,
+};
 use reader_matte::{ProcessedSource, ReaderMatte};
-use reading::{can_go_next, can_go_prev, next_anchor, prev_anchor, view_for_page, PageView};
-use settings::{AppSettings, ImageProcessingSettings, Preferences};
+use settings::Preferences;
 use settings_dialog::open_settings_dialog;
 
-const APP_ID: &str = "com.pelta.ComicReader";
+const APP_ID: &str = match option_env!("PELTA_APPLICATION_ID") {
+    Some(id) => id,
+    None => "com.pelta.ComicReader",
+};
 const APP_TITLE: &str = "Pelta Comic Reader";
 
 struct AppState {
@@ -112,7 +119,11 @@ fn texture_from_rgba(page: &ProcessedPage) -> gtk4::gdk::MemoryTexture {
 }
 
 /// Widget slot size for display-size processing (never full archive resolution).
-fn slot_size(widget: &impl gtk4::prelude::IsA<gtk4::Widget>, fallback_w: i32, fallback_h: i32) -> (u32, u32) {
+fn slot_size(
+    widget: &impl gtk4::prelude::IsA<gtk4::Widget>,
+    fallback_w: i32,
+    fallback_h: i32,
+) -> (u32, u32) {
     let w = widget.as_ref().width();
     let h = widget.as_ref().height();
     let w = if w > 32 { w } else { fallback_w }.max(1) as u32;
@@ -142,9 +153,9 @@ fn page_still_visible(
     page: usize,
     anchor: usize,
     page_count: usize,
-    two_page: bool,
+    mode: ReadingMode,
 ) -> Option<PictureSlot> {
-    match view_for_page(anchor, page_count, two_page)? {
+    match view_for_page(anchor, page_count, mode)? {
         PageView::Single(p) if p == page => Some(PictureSlot::Left),
         PageView::Spread(l, _) if l == page => Some(PictureSlot::Left),
         PageView::Spread(_, r) if r == page => Some(PictureSlot::Right),
@@ -152,10 +163,10 @@ fn page_still_visible(
     }
 }
 
-fn neighbor_page_indices(anchor: usize, page_count: usize, two_page: bool) -> Vec<usize> {
+fn neighbor_page_indices(anchor: usize, page_count: usize, mode: ReadingMode) -> Vec<usize> {
     let mut out = Vec::new();
     let mut push_view = |a: usize| {
-        if let Some(v) = view_for_page(a, page_count, two_page) {
+        if let Some(v) = view_for_page(a, page_count, mode) {
             match v {
                 PageView::Single(p) => out.push(p),
                 PageView::Spread(l, r) => {
@@ -165,10 +176,10 @@ fn neighbor_page_indices(anchor: usize, page_count: usize, two_page: bool) -> Ve
             }
         }
     };
-    if let Some(p) = prev_anchor(anchor, page_count, two_page) {
+    if let Some(p) = prev_anchor(anchor, page_count, mode) {
         push_view(p);
     }
-    if let Some(n) = next_anchor(anchor, page_count, two_page) {
+    if let Some(n) = next_anchor(anchor, page_count, mode) {
         push_view(n);
     }
     out.sort_unstable();
@@ -244,8 +255,8 @@ fn schedule_processed_page(
                         st.archive.as_ref().map(|a| a.page_count()).unwrap_or(0),
                     )
                 };
-                let two_page = settings.borrow().reading.mode.is_two_page();
-                if page_still_visible(page, anchor, count, two_page).is_some() {
+                let mode = settings.borrow().reading.mode;
+                if page_still_visible(page, anchor, count, mode).is_some() {
                     apply_processed_page(&picture, &processed);
                 }
                 finish_spinner();
@@ -430,7 +441,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let matte = matte.clone();
 
         Rc::new(move |page_idx: usize| {
-            let two_page = settings.borrow().reading.mode.is_two_page();
+            let mode = settings.borrow().reading.mode;
             let img_settings = settings.borrow().image;
             let (title, page_count, view) = {
                 let st = state.borrow();
@@ -438,15 +449,18 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                     return;
                 };
                 let page_count = archive.page_count();
-                let Some(view) = view_for_page(page_idx, page_count, two_page) else {
+                let Some(view) = view_for_page(page_idx, page_count, mode) else {
                     return;
                 };
-                (archive.title.clone(), page_count, view)
+                (archive.title().to_owned(), page_count, view)
             };
 
             let read_page = |idx: usize| -> Result<Vec<u8>, String> {
                 let st = state.borrow();
-                let archive = st.archive.as_ref().ok_or_else(|| "no archive".to_string())?;
+                let archive = st
+                    .archive
+                    .as_ref()
+                    .ok_or_else(|| "no archive".to_string())?;
                 archive.read_page(idx).map_err(|e| e.to_string())
             };
 
@@ -454,9 +468,9 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                 state.borrow_mut().current_page = anchor;
                 window_title.set_title(&title);
                 window_title.set_subtitle(&subtitle);
-                window.set_title(Some(&format!("{} — {}", title, APP_TITLE)));
-                prev_btn.set_sensitive(can_go_prev(anchor, page_count, two_page));
-                next_btn.set_sensitive(can_go_next(anchor, page_count, two_page));
+                window.set_title(Some(&format!("{title} - {APP_TITLE}")));
+                prev_btn.set_sensitive(can_go_prev(anchor, page_count, mode));
+                next_btn.set_sensitive(can_go_next(anchor, page_count, mode));
                 stack.set_visible_child_name("reader");
             };
 
@@ -477,7 +491,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
             };
 
             let prefetch_neighbors = |anchor: usize, slot_w: u32, slot_h: u32| {
-                for np in neighbor_page_indices(anchor, page_count, two_page) {
+                for np in neighbor_page_indices(anchor, page_count, mode) {
                     if let Ok(nb) = read_page(np) {
                         prefetch_processed_page(
                             np,
@@ -640,12 +654,12 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let settings = settings.clone();
         let show_page = show_page.clone();
         Rc::new(move || {
-            let two_page = settings.borrow().reading.mode.is_two_page();
+            let mode = settings.borrow().reading.mode;
             let st = state.borrow();
             let cur = st.current_page;
             let count = st.archive.as_ref().map(|a| a.page_count()).unwrap_or(0);
             drop(st);
-            if let Some(prev) = prev_anchor(cur, count, two_page) {
+            if let Some(prev) = prev_anchor(cur, count, mode) {
                 show_page(prev);
             }
         })
@@ -656,12 +670,12 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
         let settings = settings.clone();
         let show_page = show_page.clone();
         Rc::new(move || {
-            let two_page = settings.borrow().reading.mode.is_two_page();
+            let mode = settings.borrow().reading.mode;
             let st = state.borrow();
             let cur = st.current_page;
             let count = st.archive.as_ref().map(|a| a.page_count()).unwrap_or(0);
             drop(st);
-            if let Some(next) = next_anchor(cur, count, two_page) {
+            if let Some(next) = next_anchor(cur, count, mode) {
                 show_page(next);
             }
         })
@@ -682,7 +696,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
             {
                 let st = state.borrow();
                 if let Some(archive) = st.archive.as_ref() {
-                    if archive.path == path {
+                    if archive.path() == path {
                         return;
                     }
                 }
@@ -691,7 +705,7 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                 Ok(archive) => {
                     eprintln!(
                         "[pelta-linux-gnome] Opened '{}' with {} pages",
-                        archive.title,
+                        archive.title(),
                         archive.page_count()
                     );
                     process_cache.borrow_mut().clear();
@@ -738,10 +752,13 @@ fn build_ui(app: &adw::Application, opener: &Rc<RefCell<Option<OpenFn>>>) {
                 .build();
 
             let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("Comic Archives (*.cbr, *.cbz)"));
+            filter.set_name(Some("Comic Archives (*.cbr, *.cbz, *.cbt)"));
             filter.add_pattern("*.cbr");
             filter.add_pattern("*.cbz");
             filter.add_pattern("*.cbt");
+            filter.add_pattern("*.rar");
+            filter.add_pattern("*.zip");
+            filter.add_pattern("*.tar");
             filter.add_pattern("*.CBR");
             filter.add_pattern("*.CBZ");
             filter.add_pattern("*.CBT");

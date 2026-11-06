@@ -5,105 +5,40 @@ use std::cell::Cell;
 
 use gio::prelude::*;
 
-/// How pages are laid out while reading.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ReadingMode {
-    /// One page at a time (default).
-    #[default]
-    SinglePage,
-    /// Facing pages as spreads; cover and back cover stay alone.
-    TwoPageSpreads,
-}
-
-impl ReadingMode {
-    pub fn is_two_page(self) -> bool {
-        matches!(self, Self::TwoPageSpreads)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ReadingSettings {
-    pub mode: ReadingMode,
-}
-
-/// How page bitmaps are resampled before display.
-///
-/// Exactly one scaling choice is active. Defaults to [`ScalingMode::Nothing`]
-/// so GTK scales the texture (current behaviour).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum ScalingMode {
-    /// Leave decoding alone; GTK scales the texture.
-    #[default]
-    Nothing,
-    /// Linear-light Lanczos3 resize to display size (experimental).
-    Lanczos3,
-    /// Linear-light Mitchell–Netravali resize to display size.
-    MitchellNetravali,
-}
-
-impl ScalingMode {
-    pub fn needs_custom_resize(self) -> bool {
-        !matches!(self, Self::Nothing)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct ImageProcessingSettings {
-    pub scaling: ScalingMode,
-    /// CLAHE on luminance. Independent of the scaling choice in the UI; when
-    /// both are on, CLAHE runs after the resize.
-    pub auto_contrast: bool,
-    /// Black and white points per page, after the resize and before CLAHE.
-    /// Stored in GSettings ([`AUTO_LEVELS_KEY`]).
-    pub auto_levels: bool,
-}
-
-impl ImageProcessingSettings {
-    /// True when we must decode → process → MemoryTexture instead of GTK scale.
-    pub fn needs_processing(self) -> bool {
-        self.scaling.needs_custom_resize() || self.auto_contrast || self.auto_levels
-    }
-
-    /// Optional soak-test overrides: `PELTA_LANCZOS3=1`, `PELTA_MITCHELL=1`,
-    /// or `PELTA_AUTO_CONTRAST=1`. Defaults remain Nothing when unset.
-    /// Exclusive priority: Lanczos → Mitchell → Auto contrast.
-    pub fn from_env() -> Self {
-        let mut s = Self::default();
-        if std::env::var_os("PELTA_LANCZOS3").is_some() {
-            s.scaling = ScalingMode::Lanczos3;
-            s.auto_contrast = false;
-        } else if std::env::var_os("PELTA_MITCHELL").is_some() {
-            s.scaling = ScalingMode::MitchellNetravali;
-            s.auto_contrast = false;
-        } else if std::env::var_os("PELTA_AUTO_CONTRAST").is_some() {
-            s.scaling = ScalingMode::Nothing;
-            s.auto_contrast = true;
-        }
-        s
-    }
-}
-
-/// Top-level settings container. Add further groups here as needed.
-#[derive(Debug, Clone, Default)]
-pub struct AppSettings {
-    pub reading: ReadingSettings,
-    pub image: ImageProcessingSettings,
-}
-
-pub const PAGE_MATTE_KEY: &str = "page-matte-detection";
-pub const AUTO_LEVELS_KEY: &str = "auto-levels-enabled";
+pub(crate) const PAGE_MATTE_KEY: &str = "page-matte-detection";
+pub(crate) const AUTO_LEVELS_KEY: &str = "auto-levels-enabled";
 
 /// Preferences that survive restarts, stored in GSettings under the app id.
 ///
 /// When the schema is not installed (for example `cargo run` from a checkout)
 /// the values live in memory for the session, starting from the schema
 /// defaults, so the app still runs.
-pub enum Preferences {
+pub(crate) enum Preferences {
+    /// Installed schema, written through dconf / a test keyfile backend.
     Stored(gio::Settings),
+    /// In-memory fallback when the schema is not installed.
     Session {
+        /// Match page border colour.
         page_matte: Cell<bool>,
+        /// Per-page black and white points.
         auto_levels: Cell<bool>,
     },
+}
+
+impl std::fmt::Debug for Preferences {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stored(_) => f.debug_tuple("Stored").field(&"<gio::Settings>").finish(),
+            Self::Session {
+                page_matte,
+                auto_levels,
+            } => f
+                .debug_struct("Session")
+                .field("page_matte", &page_matte.get())
+                .field("auto_levels", &auto_levels.get())
+                .finish(),
+        }
+    }
 }
 
 /// Must match the `<default>` values in `data/com.pelta.ComicReader.gschema.xml`.
@@ -111,7 +46,9 @@ const PAGE_MATTE_DEFAULT: bool = true;
 const AUTO_LEVELS_DEFAULT: bool = false;
 
 impl Preferences {
-    pub fn load(schema_id: &str) -> Self {
+    /// Load stored preferences, or a session fallback if the schema is missing.
+    #[must_use]
+    pub(crate) fn load(schema_id: &str) -> Self {
         let installed =
             gio::SettingsSchemaSource::default().and_then(|source| source.lookup(schema_id, true));
         match installed {
@@ -126,7 +63,9 @@ impl Preferences {
         }
     }
 
-    pub fn with_schema(
+    /// Bind this schema, optionally through a test backend.
+    #[must_use]
+    pub(crate) fn with_schema(
         schema: &gio::SettingsSchema,
         backend: Option<&gio::SettingsBackend>,
     ) -> Self {
@@ -140,19 +79,25 @@ impl Preferences {
         }
     }
 
-    pub fn page_matte(&self) -> bool {
+    /// Current page-matte preference.
+    #[must_use]
+    pub(crate) fn page_matte(&self) -> bool {
         self.boolean(PAGE_MATTE_KEY)
     }
 
-    pub fn set_page_matte(&self, enabled: bool) {
+    /// Persist the page-matte preference.
+    pub(crate) fn set_page_matte(&self, enabled: bool) {
         self.set_boolean(PAGE_MATTE_KEY, enabled);
     }
 
-    pub fn auto_levels(&self) -> bool {
+    /// Current auto-levels preference.
+    #[must_use]
+    pub(crate) fn auto_levels(&self) -> bool {
         self.boolean(AUTO_LEVELS_KEY)
     }
 
-    pub fn set_auto_levels(&self, enabled: bool) {
+    /// Persist the auto-levels preference.
+    pub(crate) fn set_auto_levels(&self, enabled: bool) {
         self.set_boolean(AUTO_LEVELS_KEY, enabled);
     }
 
@@ -326,7 +271,7 @@ mod tests {
         let mut keys: Vec<String> = schema(&dir)
             .list_keys()
             .iter()
-            .map(|k| k.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         keys.sort();
         assert_eq!(keys, [AUTO_LEVELS_KEY, PAGE_MATTE_KEY]);

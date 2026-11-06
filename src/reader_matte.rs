@@ -11,10 +11,11 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 
-use crate::image_proc::{decode_rgba, process_page};
-use crate::matte::{detect_page, detect_spread, Rgb};
-use crate::reading::PageView;
-use crate::settings::{ImageProcessingSettings, Preferences};
+use pelta_core::{
+    decode_rgba, detect_page, detect_spread, process_page, ImageProcessingSettings, PageView, Rgb,
+};
+
+use crate::settings::Preferences;
 
 const READER_CLASS: &str = "pelta-reader";
 const TRANSITION: &str = "transition: background-color 200ms ease-out, color 200ms ease-out;";
@@ -22,15 +23,16 @@ const TRANSITION: &str = "transition: background-color 200ms ease-out, color 200
 /// Detect from the page as the pipeline renders it at `width`×`height` with
 /// `settings`, instead of from the raw decoded page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ProcessedSource {
-    pub width: u32,
-    pub height: u32,
-    pub settings: ImageProcessingSettings,
+pub(crate) struct ProcessedSource {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) settings: ImageProcessingSettings,
 }
 
 type MatteKey = (PageView, Option<ProcessedSource>);
 
-pub struct ReaderMatte {
+/// Applies detected page-matte colours to the reader CSS.
+pub(crate) struct ReaderMatte {
     prefs: Rc<Preferences>,
     provider: gtk4::CssProvider,
     cache: RefCell<HashMap<MatteKey, Option<Rgb>>>,
@@ -42,7 +44,7 @@ pub struct ReaderMatte {
 }
 
 impl ReaderMatte {
-    pub fn new(reader: &impl IsA<gtk4::Widget>, prefs: Rc<Preferences>) -> Rc<Self> {
+    pub(crate) fn new(reader: &impl IsA<gtk4::Widget>, prefs: Rc<Preferences>) -> Rc<Self> {
         reader.add_css_class(READER_CLASS);
         let provider = gtk4::CssProvider::new();
         gtk4::style_context_add_provider_for_display(
@@ -62,14 +64,14 @@ impl ReaderMatte {
         this
     }
 
-    pub fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.prefs.page_matte()
     }
 
     /// Persists the setting. Switching off returns to the theme background at
     /// once and drops any pending detection; switching on takes effect on the
     /// next [`Self::show`].
-    pub fn set_enabled(&self, enabled: bool) {
+    pub(crate) fn set_enabled(&self, enabled: bool) {
         self.prefs.set_page_matte(enabled);
         if !enabled {
             self.bump();
@@ -79,7 +81,7 @@ impl ReaderMatte {
     }
 
     /// A different book was opened.
-    pub fn reset(&self) {
+    pub(crate) fn reset(&self) {
         self.bump();
         self.cache.borrow_mut().clear();
     }
@@ -88,7 +90,7 @@ impl ReaderMatte {
     /// a single page, left then right for a spread). With `processed`, the
     /// colour comes from the pages as rendered with those settings; with
     /// `None`, from the raw pages. Does nothing while the feature is off.
-    pub fn show(
+    pub(crate) fn show(
         self: &Rc<Self>,
         view: PageView,
         pages: Vec<Vec<u8>>,
@@ -146,12 +148,15 @@ impl ReaderMatte {
 }
 
 fn detect(pages: &[Vec<u8>], processed: Option<ProcessedSource>) -> Result<Option<Rgb>, String> {
-    let load = |bytes: &[u8]| match processed {
-        None => decode_rgba(bytes),
-        Some(p) => {
-            let page = process_page(bytes, p.width, p.height, p.settings)?;
-            image::RgbaImage::from_raw(page.width, page.height, page.rgba)
-                .ok_or_else(|| "processed page has the wrong size".to_string())
+    let load = |bytes: &[u8]| -> Result<image::RgbaImage, String> {
+        match processed {
+            None => decode_rgba(bytes).map_err(|e| e.to_string()),
+            Some(p) => {
+                let page = process_page(bytes, p.width, p.height, p.settings)
+                    .map_err(|e| e.to_string())?;
+                image::RgbaImage::from_raw(page.width, page.height, page.rgba)
+                    .ok_or_else(|| "processed page has the wrong size".to_string())
+            }
         }
     };
     match pages {
@@ -185,7 +190,7 @@ fn reader_css(matte: Option<Rgb>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::image_proc::fixtures;
+    use pelta_core::image_proc::fixtures;
 
     #[test]
     fn css_without_matte_uses_the_theme_background() {

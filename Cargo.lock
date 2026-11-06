@@ -630,15 +630,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "pelta-linux-gnome"
-version = "0.1.8"
+name = "pelta-core"
+version = "0.1.9"
 dependencies = [
  "fast_image_resize",
+ "image",
+ "thiserror",
+]
+
+[[package]]
+name = "pelta-linux-gnome"
+version = "0.1.9"
+dependencies = [
  "gio",
  "glib",
  "gtk4",
  "image",
  "libadwaita",
+ "pelta-core",
 ]
 
 [[package]]
